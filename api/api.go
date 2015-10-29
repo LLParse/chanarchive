@@ -43,6 +43,7 @@ type ApiServer struct {
 	PostPubSocket *zmq4.Socket
 	Listeners     []chan fourchan.Post
 	Connections   int64
+	Storage       *fourchan.Storage
 }
 
 func (as *ApiServer) statusHandler(w http.ResponseWriter, r *http.Request) {
@@ -291,21 +292,21 @@ func (as *ApiServer) streamHandler(w http.ResponseWriter, r *http.Request) {
 	//stop <- true
 }
 
+func (as *ApiServer) boardHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+}
+
 func NewApiServer(flags *FlagConfig, stop chan<- bool) *ApiServer {
 	as := new(ApiServer)
 	as.Config.CmdLine = strings.Join(os.Args, " ")
 	as.Config.PortNumber = flags.HttpPort
 	as.Config.MaxConnections = flags.MaxConnections
 	as.Config.ClusterName = flags.ClusterName
-	as.Config.EtcdEndpoints = strings.Split(flags.Etcd, ",")
+	as.Config.EtcdEndpoints = strings.Split(flags.EtcdEndpoints, ",")
 	as.stop = stop
 	as.Stats = node.NewNodeStats()
-	return as
-}
-
-func (as *ApiServer) Serve() error {
-	log.Println("Starting HTTP Server on port", as.Config.PortNumber)
-
+	as.Storage = fourchan.NewStorage(flags.CassKeyspace, strings.Split(flags.CassEndpoints, ",")...)
 	cfg := etcd.Config {
 		Endpoints:               as.Config.EtcdEndpoints,
 		Transport:               etcd.DefaultTransport,
@@ -313,14 +314,19 @@ func (as *ApiServer) Serve() error {
 	}
 	c, err := etcd.New(cfg)
 	if err != nil {
-		log.Print("Failed to connected to etcd: ", err)
-		return err
+		log.Fatal("Failed to connected to etcd: ", err)
+		return nil
 	}
 	as.EtcKeys = etcd.NewKeysAPI(c)
+	return as
+}
 
+func (as *ApiServer) Serve() error {
+	log.Println("Starting HTTP Server on port", as.Config.PortNumber)
 	http.HandleFunc("/status/", as.statusHandler)
 	http.HandleFunc("/commands/", as.commandHandler)
 	http.HandleFunc("/stream.json", as.streamHandler)
+	http.HandleFunc("/boards/", as.boardHandler)
 	if e := http.ListenAndServe(fmt.Sprintf(":%d", as.Config.PortNumber), nil); e != nil {
 		log.Print("Error starting server", e)
 		return e
