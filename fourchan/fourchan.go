@@ -121,10 +121,10 @@ func DownloadFile(board string, tim int64, ext string) ([]byte, error) {
 	req.Header.Add("User-Agent", USER_AGENT)
 
 	resp, err := DefaultClient.Do(req)
-	defer resp.Body.Close()
 	if resp == nil {
 		return nil, err
 	}
+	defer resp.Body.Close()
 
 	return ioutil.ReadAll(resp.Body)
 }
