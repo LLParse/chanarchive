@@ -9,10 +9,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/coreos/etcd/store"
-	"github.com/coreos/go-etcd/etcd"
-	"github.com/pebbe/zmq3"
-	"github.com/wakarimasenco/streamingchan/fourchan"
+  "github.com/coreos/etcd/Godeps/_workspace/src/golang.org/x/net/context"
+  etcd "github.com/coreos/etcd/client"
+	"github.com/pebbe/zmq4"
+	"github.com/llparse/streamingchan/fourchan"
 	"io"
 	"log"
 	"math/rand"
@@ -42,7 +42,7 @@ type NodeInfo struct {
 }
 
 type NodeConfig struct {
-	Etcd          []string
+	EtcdEndpoints []string
 	Hostname      string
 	BindIp        string
 	OnlyBoards    []string
@@ -55,16 +55,16 @@ type Node struct {
 	NodeId           string
 	Stats            *NodeStats
 	Boards           *fourchan.Boards
+	Storage          *fourchan.Storage
 	Config           NodeConfig
-	EtcCluster       *etcd.Client
-	ThreadPubSocket  *zmq3.Socket
+	EtcKeys          etcd.KeysAPI
+	ThreadPubSocket  *zmq4.Socket
 	ThreadPub        chan fourchan.ThreadInfo
-	ThreadSubSocket  *zmq3.Socket
+	ThreadSubSocket  *zmq4.Socket
 	ThreadSub        chan fourchan.ThreadInfo
-	PostPubSocket    *zmq3.Socket
+	PostPubSocket    *zmq4.Socket
 	PostPub          chan fourchan.Post
-	NewNodeWatch     chan bool
-	UpdateNodeWatch  chan bool
+	FilePub          chan *fourchan.File
 	BoardStop        []chan bool
 	Shutdown         bool
 	Closed           bool
@@ -74,6 +74,7 @@ type Node struct {
 	LastNodeIdx      int
 	NodeCount        int
 	DivideMutex      sync.Mutex
+	Info             *NodeInfo
 }
 
 func randNodeId() string {
@@ -103,13 +104,6 @@ func randInt(min, max int) int {
 
 func (n *Node) Close() {
 	n.Closed = true
-	if n.NewNodeWatch != nil {
-		n.NewNodeWatch <- true
-	}
-	if n.UpdateNodeWatch != nil {
-		n.UpdateNodeWatch <- true
-	}
-	n.NewNodeWatch = nil
 	if n.ThreadSub != nil {
 		go func() { _, _ = <-n.ThreadSub }()
 		time.Sleep(5 * time.Millisecond)
@@ -128,6 +122,13 @@ func (n *Node) Close() {
 		close(n.PostPub)
 	}
 	n.PostPub = nil
+	if n.FilePub != nil {
+		go func() { _, _ = <-n.FilePub }()
+		time.Sleep(5 * time.Millisecond)
+		close(n.FilePub)
+	}
+	n.FilePub = nil
+	n.Storage.Close()
 	//n.ThreadSubSocket.Close()
 	//n.ThreadPubSocket.Close()
 	//n.PostPubSocket.Close()
@@ -138,7 +139,7 @@ func NewNode(flags *FlagConfig) *Node {
 	n.Stats = NewNodeStats()
 	n.Config.Hostname = flags.Hostname
 	n.Config.BindIp = flags.BindIp
-	n.Config.Etcd = strings.Split(flags.Etcd, ",")
+	n.Config.EtcdEndpoints = strings.Split(flags.Etcd, ",")
 	n.Config.Cluster = flags.ClusterName
 	if flags.OnlyBoards != "" {
 		n.Config.OnlyBoards = strings.Split(flags.OnlyBoards, ",")
@@ -169,14 +170,6 @@ func (n *Node) rollbackBootstrap() {
 		n.PostPubSocket = nil
 		n.SocketWaitGroup.Done()
 	}
-
-	if n.NewNodeWatch != nil {
-		n.NewNodeWatch <- true
-	}
-	if n.UpdateNodeWatch != nil {
-		n.UpdateNodeWatch <- true
-	}
-
 }
 
 func (n *Node) Bootstrap() error {
@@ -184,12 +177,18 @@ func (n *Node) Bootstrap() error {
 	n.NodeId = randNodeId()
 	log.Print("Node Id:", n.NodeId)
 
+	n.Storage = fourchan.NewStorage("chan", "127.0.0.1")
+
 	log.Print("Downloading 4Chan boards list...")
 	var err error
 	n.Boards, err = fourchan.DownloadBoards(n.Config.OnlyBoards, n.Config.ExcludeBoards)
+	log.Printf("%+v", n.Boards)
 	if err != nil {
 		log.Print("Failed to download boards list: ", err)
 		return err
+	}
+	for _, board := range n.Boards.Boards {
+		n.Storage.PersistBoard(&board)
 	}
 
 	if n.Config.Hostname == "" {
@@ -199,11 +198,11 @@ func (n *Node) Bootstrap() error {
 	log.Print("Initializing publisher sockets...")
 	tpubport := randInt(THRD_PUB_PORT_LOW, THRD_PUB_PORT_HIGH)
 	ppubport := randInt(POST_PUB_PORT_LOW, POST_PUB_PORT_HIGH)
-	if n.ThreadPubSocket, err = zmq3.NewSocket(zmq3.PUB); err != nil {
+	if n.ThreadPubSocket, err = zmq4.NewSocket(zmq4.PUB); err != nil {
 		log.Print("Failed to create Thread Pub Socket: ", err)
 		return err
 	}
-	if n.PostPubSocket, err = zmq3.NewSocket(zmq3.PUB); err != nil {
+	if n.PostPubSocket, err = zmq4.NewSocket(zmq4.PUB); err != nil {
 		log.Print("Failed to create Post Pub Socket: ", err)
 		return err
 	}
@@ -219,221 +218,256 @@ func (n *Node) Bootstrap() error {
 	}
 	n.SocketWaitGroup.Add(2)
 
-	n.EtcCluster = etcd.NewClient()
-	if n.Config.Etcd != nil {
-		if !n.EtcCluster.SetCluster(n.Config.Etcd) {
-			log.Print("Failed to register to etcd.")
-			return errors.New("ailed to register to etcd")
-		}
+	cfg := etcd.Config {
+		Endpoints:               n.Config.EtcdEndpoints,
+		Transport:               etcd.DefaultTransport,
+		HeaderTimeoutPerRequest: time.Second,
 	}
+	c, err := etcd.New(cfg)
+	if err != nil {
+		log.Print("Failed to connected to etcd: ", err)
+		return err
+	}
+	n.EtcKeys = etcd.NewKeysAPI(c)
 
+	nodepath := "/" + n.Config.Cluster + "/nodes"
 	for tries := 0; tries < 10; tries++ {
 		log.Print("Registering to etcd...")
-		resp, err := n.EtcCluster.Get(n.Config.Cluster + "/nodes")
-		if err == nil || (isEtcdError(err) && (err.(etcd.EtcdError)).ErrorCode == 100) {
-			var nodes []NodeInfo
-			nodeIndex := 1
-			if err == nil {
-				result := resp[0]
-				if e := json.Unmarshal([]byte(result.Value), &nodes); e != nil {
-					log.Print("Failed to unmarshhal " + n.Config.Cluster + "/nodes")
-					return e
-				}
-				for ; nodeIndex <= len(nodes); nodeIndex++ {
-					found := false
-					for _, node := range nodes {
-						if nodeIndex == node.NodeIndex {
-							found = true
-							break
-						}
-					}
-					if !found {
+		resp, err := n.EtcKeys.Get(context.Background(), nodepath, nil)
+		if err != nil && (err.(etcd.Error)).Code != 100 {
+			log.Print("Failed to get ", nodepath, ": ", err)
+			return err
+		}
+
+		var nodes []NodeInfo
+		nodeIndex := 1
+		if err == nil {
+			if e := json.Unmarshal([]byte(resp.Node.Value), &nodes); e != nil {
+				log.Print("Failed to unmarshhal ", nodepath)
+				log.Print(resp.Node.Value)
+				return e
+			}
+			for ; nodeIndex <= len(nodes); nodeIndex++ {
+				found := false
+				for _, node := range nodes {
+					if nodeIndex == node.NodeIndex {
+						found = true
 						break
 					}
 				}
-			} else {
-				nodes = make([]NodeInfo, 0, 1)
-			}
-			nodes = append(nodes, NodeInfo{n.NodeId, nodeIndex, n.Config.Hostname, tpubport, ppubport})
-			if n.ThreadSubSocket, err = zmq3.NewSocket(zmq3.SUB); err != nil {
-				log.Print("Failed to create Thread Sub Socket: ", err)
-				return err
-			}
-			n.ThreadSubSocket.SetSubscribe("")
-			n.SocketWaitGroup.Add(1)
-			var failureErr error
-			failureErr = nil
-			for _, node := range nodes {
-				log.Print("Connecting to ", fmt.Sprintf("tcp://%s:%d", node.Hostname, node.TPubPort))
-				if err := n.ThreadSubSocket.Connect(fmt.Sprintf("tcp://%s:%d", node.Hostname, node.TPubPort)); err != nil {
-					log.Print(err)
-					failureErr = err
+				if !found {
 					break
 				}
 			}
-			if failureErr != nil {
-				log.Print("Failed to create Thread Sub Socket: ", err)
-				time.Sleep(2 * time.Second)
-				n.rollbackBootstrap()
-				continue
-			}
-			log.Print("Finished connecting, watching nodes...")
-			n.NewNodeWatch = make(chan bool)
-			n.UpdateNodeWatch = make(chan bool)
-			newNodes := make(chan *store.Response)
-			updateNodes := make(chan *store.Response)
-
-			n.ThreadPub = make(chan fourchan.ThreadInfo)
-			n.PostPub = make(chan fourchan.Post)
-			n.ThreadSub = make(chan fourchan.ThreadInfo)
-
-			go func(newNodes <-chan *store.Response) {
-				for response := range newNodes {
-					if response.Action == "SET" {
-						if fmt.Sprintf("%s:%d", n.Config.Hostname, tpubport) != response.Value {
-							log.Print("Connecting to ", fmt.Sprintf("tcp://%s", response.Value))
-							e := n.ThreadSubSocket.Connect(fmt.Sprintf("tcp://%s", response.Value))
-							if e != nil {
-								log.Print("Failed to connect to", fmt.Sprintf("tcp://%s", response.Value), ":", e)
-							}
-						}
-					}
-				}
-			}(newNodes)
-
-			go func(newNodes chan *store.Response) {
-				for {
-					_, e := n.EtcCluster.Watch(n.Config.Cluster+"/add-node", 0, newNodes, n.NewNodeWatch)
-					if e.Error() == "User stoped watch" {
-						break
-					}
-				}
-				close(newNodes)
-			}(newNodes)
-
-			go func(updateNodes chan *store.Response) {
-				for response := range updateNodes {
-					if response.Action == "SET" && response.Key == "/"+n.Config.Cluster+"/nodes" {
-						n.divideBoards()
-					}
-				}
-			}(updateNodes)
-
-			go func(updateNodes chan *store.Response) {
-				for {
-					_, e := n.EtcCluster.Watch(n.Config.Cluster+"/nodes", 0, updateNodes, n.UpdateNodeWatch)
-					if e.Error() == "User stoped watch" {
-						break
-					}
-				}
-				close(updateNodes)
-			}(updateNodes)
-
-			sort.Sort(NodeInfoList(nodes))
-			for idx, _ := range nodes {
-				nodes[idx].NodeIndex = idx + 1
-			}
-
-			newNodeData, _ := json.Marshal(nodes)
-			prevValue := ""
-			if len(resp) > 0 {
-				prevValue = resp[0].Value
-			}
-
-			time.Sleep(1 * time.Second)
-			log.Print("Updating node list.")
-
-			_, isSet, err := n.EtcCluster.TestAndSet(n.Config.Cluster+"/nodes", prevValue, string(newNodeData), 0)
-			if err != nil || isSet != true {
-				log.Print("Failed to update node list. Possibly another node bootstrapped before finish.")
-				//n.Close()
-				n.rollbackBootstrap()
-				continue
-			}
-
-			go n.bootstrapThreadWorkers()
-
-			go func() {
-				for !n.Closed {
-					data, err := n.ThreadSubSocket.RecvBytes(zmq3.DONTWAIT)
-					if err == syscall.EAGAIN {
-						time.Sleep(1 * time.Millisecond)
-						continue
-					}
-					var threadInfo fourchan.ThreadInfo
-					dec := gob.NewDecoder(bytes.NewBuffer(data))
-					err = dec.Decode(&threadInfo)
-					if err != nil {
-						log.Print("Failed to decode thread gob ", err)
-						continue
-					}
-					if n.ThreadSub != nil {
-						n.ThreadSub <- threadInfo
-					}
-				}
-				n.ThreadSubSocket.Close()
-				n.SocketWaitGroup.Done()
-			}()
-
-			go func() {
-				for threadInfo := range n.ThreadPub {
-					var buff bytes.Buffer
-					enc := gob.NewEncoder(&buff)
-					err := enc.Encode(threadInfo)
-					if err != nil {
-						log.Print("Failed to encode threadInfo ", err)
-						continue
-					}
-					for tries := 0; tries < 16; tries++ {
-						_, e := n.ThreadPubSocket.SendBytes(buff.Bytes(), zmq3.DONTWAIT)
-						if e == syscall.EAGAIN {
-							time.Sleep(1 * time.Millisecond)
-							continue
-						} else if e == nil {
-							break
-						}
-					}
-				}
-				n.ThreadPubSocket.Close()
-				n.SocketWaitGroup.Done()
-			}()
-
-			go func() {
-				for post := range n.PostPub {
-					var buff bytes.Buffer
-					enc := gob.NewEncoder(&buff)
-					err := enc.Encode(post)
-					if err != nil {
-						log.Print("Failed to encode post ", err)
-						continue
-					}
-					for tries := 0; tries < 16; tries++ {
-						_, e := n.PostPubSocket.SendBytes(buff.Bytes(), zmq3.DONTWAIT)
-						if e == syscall.EAGAIN {
-							time.Sleep(1 * time.Millisecond)
-							continue
-						} else if e == nil {
-							break
-						}
-					}
-				}
-				n.PostPubSocket.Close()
-				n.SocketWaitGroup.Done()
-			}()
-
-			//log.Print("SETTING")
-			n.EtcCluster.Set(n.Config.Cluster+"/add-node/"+n.NodeId, fmt.Sprintf("%s:%d", n.Config.Hostname, tpubport), 600)
-			n.EtcCluster.Set(n.Config.Cluster+"/add-postpub/"+n.NodeId, fmt.Sprintf("%s:%d", n.Config.Hostname, ppubport), 600)
-			log.Print("Complete bootstrapping node.")
-			return nil
 		} else {
-			log.Print("Failed to register to etcd: ", err)
+			nodes = make([]NodeInfo, 0, 1)
+		}
+		n.Info = &NodeInfo{n.NodeId, nodeIndex, n.Config.Hostname, tpubport, ppubport}
+		nodes = append(nodes, *n.Info)
+		if n.ThreadSubSocket, err = zmq4.NewSocket(zmq4.SUB); err != nil {
+			log.Print("Failed to create Thread Sub Socket: ", err)
 			return err
 		}
+		n.ThreadSubSocket.SetSubscribe("")
+		n.SocketWaitGroup.Add(1)
+		var failureErr error
+		failureErr = nil
+		for _, node := range nodes {
+			log.Print("Connecting to ", fmt.Sprintf("tcp://%s:%d", node.Hostname, node.TPubPort))
+			if err := n.ThreadSubSocket.Connect(fmt.Sprintf("tcp://%s:%d", node.Hostname, node.TPubPort)); err != nil {
+				log.Print(err)
+				failureErr = err
+				break
+			}
+		}
+		if failureErr != nil {
+			log.Print("Failed to create Thread Sub Socket: ", err)
+			time.Sleep(2 * time.Second)
+			n.rollbackBootstrap()
+			continue
+		}
+		log.Print("Finished connecting, watching nodes...")
+
+		n.ThreadPub = make(chan fourchan.ThreadInfo)
+		n.PostPub = make(chan fourchan.Post)
+		n.ThreadSub = make(chan fourchan.ThreadInfo)
+		n.FilePub = make(chan *fourchan.File)
+
+		go n.addNodeWatcher()
+		go n.topologyWatcher()
+
+		sort.Sort(NodeInfoList(nodes))
+		for idx, _ := range nodes {
+			nodes[idx].NodeIndex = idx + 1
+		}
+
+		newNodeData, _ := json.Marshal(nodes)
+		time.Sleep(1 * time.Second)
+		log.Print("Updating node list.")
+
+		_, err = n.EtcKeys.Set(context.Background(), nodepath, string(newNodeData), nil)
+		if err != nil {
+			log.Print("Failed to update node list. Possibly another node bootstrapped before finish.")
+			//n.Close()
+			n.rollbackBootstrap()
+			continue
+		}
+
+		go n.bootstrapThreadWorkers()
+
+		go func() {
+			for !n.Closed {
+				time.Sleep(1 * time.Millisecond)
+				data, err := n.ThreadSubSocket.RecvBytes(zmq4.DONTWAIT)
+				if err == syscall.EAGAIN {
+					time.Sleep(1 * time.Millisecond)
+					continue
+				}
+				var threadInfo fourchan.ThreadInfo
+				dec := gob.NewDecoder(bytes.NewBuffer(data))
+				err = dec.Decode(&threadInfo)
+				if err != nil {
+					//log.Print(data)
+					//log.Print("Failed to decode thread gob ", err)
+					continue
+				}
+				if n.ThreadSub != nil {
+					n.ThreadSub <- threadInfo
+				}
+			}
+			n.ThreadSubSocket.Close()
+			n.SocketWaitGroup.Done()
+		}()
+
+		go n.threadPublisher()
+		go n.postPublisher()
+		go n.filePublisher()
+
+		opts := &etcd.SetOptions{TTL: 600}
+		n.EtcKeys.Set(context.Background(), n.Config.Cluster+"/subscribe-thread/"+n.NodeId,
+			fmt.Sprintf("%s:%d", n.Config.Hostname, n.Info.TPubPort), opts)
+		n.EtcKeys.Set(context.Background(), n.Config.Cluster+"/subscribe-post/"+n.NodeId,
+			fmt.Sprintf("%s:%d", n.Config.Hostname, n.Info.PPubPort), opts)
+		log.Print("Complete bootstrapping node.")
+		return nil
 	}
 
 	log.Print("Failed to bootstrap node.")
 	return errors.New("Failed to bootstrap node.")
+}
+
+func (n *Node) addNodeWatcher() {
+	path := "/" + n.Config.Cluster + "/subscribe-thread"
+	watcher := n.EtcKeys.Watcher(path, nil)
+	log.Print(path, " watcher registered")
+	for {
+		resp, err := watcher.Next(context.Background())
+		if err != nil {
+			log.Print(path, " watcher failure:", err)
+			continue
+		}
+		if resp.Action == "set" {
+			if fmt.Sprintf("%s:%d", n.Config.Hostname, n.Info.TPubPort) != resp.Node.Value {
+				address := fmt.Sprintf("tcp://%s", resp.Node.Value)
+				log.Print("Connecting to ", address)
+				e := n.ThreadSubSocket.Connect(address)
+				if e != nil {
+					log.Print("Failed to connect to ", address, ":", e)
+				}
+			}
+		}
+	}
+}
+
+func (n *Node) topologyWatcher() {
+	path := "/" + n.Config.Cluster + "/nodes"
+	watcher := n.EtcKeys.Watcher(path, nil)
+	for {
+		resp, err := watcher.Next(context.Background())
+		if err != nil {
+			log.Print(path, " watcher failure:", err)
+			continue
+		}
+		if resp.Action == "set" {
+			log.Print(path, " updated, dividing boards...")
+			n.divideBoards()
+		}		
+	}
+}
+
+func (n *Node) threadPublisher() {
+	for threadInfo := range n.ThreadPub {
+		n.Storage.PersistThread(&threadInfo)
+		var buff bytes.Buffer
+		enc := gob.NewEncoder(&buff)
+		err := enc.Encode(threadInfo)
+		if err != nil {
+			log.Print("Failed to encode threadInfo ", err)
+			continue
+		}
+		for tries := 0; tries < 16; tries++ {
+			_, e := n.ThreadPubSocket.SendBytes(buff.Bytes(), zmq4.DONTWAIT)
+			if e == syscall.EAGAIN {
+				time.Sleep(1 * time.Millisecond)
+				continue
+			} else if e == nil {
+				break
+			}
+		}
+	}
+	n.ThreadPubSocket.Close()
+	n.SocketWaitGroup.Done()
+}
+
+func (n *Node) postPublisher() {
+	for post := range n.PostPub {
+		n.Storage.PersistPost(&post)
+		if post.Md5 != "" && post.Ext != "" && !n.Closed {
+			file := &fourchan.File{
+				Board: post.Board,
+				Tim: post.Tim,
+				Md5: post.Md5,
+				Ext: post.Ext,
+				FSize: post.FSize,
+			}
+			n.FilePub <- file
+		}
+
+		var buff bytes.Buffer
+		enc := gob.NewEncoder(&buff)
+		err := enc.Encode(post)
+		if err != nil {
+			log.Print("Failed to encode post ", err)
+			continue
+		}
+		for tries := 0; tries < 16; tries++ {
+			_, e := n.PostPubSocket.SendBytes(buff.Bytes(), zmq4.DONTWAIT)
+			if e == syscall.EAGAIN {
+				time.Sleep(1 * time.Millisecond)
+				continue
+			} else if e == nil {
+				break
+			}
+		}
+	}
+	n.PostPubSocket.Close()
+	n.SocketWaitGroup.Done()
+}
+
+func (n *Node) filePublisher() {
+	for file := range n.FilePub {
+		if !n.Storage.FileExists(file) {
+			data, err := fourchan.DownloadFile(file.Board, file.Tim, file.Ext)
+			if err == nil {
+				file.Data = data
+				n.Storage.PersistFile(file)
+			} else {
+				log.Printf("Error downloading file %+v: %+v", file, err)
+			}
+		} else {
+			log.Printf("File exists: %+v", file)
+		}
+	}
 }
 
 func (n *Node) divideBoards() {
@@ -444,10 +478,10 @@ func (n *Node) divideBoards() {
 			c <- true
 		}
 	}
-	resp, err := n.EtcCluster.Get(n.Config.Cluster + "/nodes")
+	resp, err := n.EtcKeys.Get(context.Background(), n.Config.Cluster + "/nodes", nil)
 	if err == nil {
 		var nodes []NodeInfo
-		result := resp[0]
+		result := resp.Node
 		if e := json.Unmarshal([]byte(result.Value), &nodes); e != nil {
 			log.Print("Failed to unmarshhal " + n.Config.Cluster + "/nodes")
 			return
@@ -459,8 +493,12 @@ func (n *Node) divideBoards() {
 			nodeIds = append(nodeIds, node.NodeId)
 		}
 		newNodeData, _ := json.Marshal(nodes)
-		if string(newNodeData) != resp[0].Value {
-			_, _, _ = n.EtcCluster.TestAndSet(n.Config.Cluster+"/nodes", resp[0].Value, string(newNodeData), 0)
+		if string(newNodeData) != result.Value {
+			_, err := n.EtcKeys.Set(context.Background(), n.Config.Cluster+"/nodes", string(newNodeData), 
+				&etcd.SetOptions{PrevValue: result.Value})
+			if err != nil {
+				log.Print("Failed to update /nodes data")
+			}
 			return
 		}
 		var myNode *NodeInfo
@@ -502,6 +540,7 @@ func (n *Node) bootstrapThreadWorkers() {
 			defer wg.Done()
 			for ti := range n.ThreadSub {
 				if ti.OwnerId == n.NodeId {
+					//log.Printf("Process thread %+v", ti)
 					n.ProcessThread(ti)
 				}
 			}
@@ -518,12 +557,12 @@ func (n *Node) CleanShutdown() {
 	n.Shutdown = true
 	log.Print("Removing node from cluster.")
 	for tries := 0; tries < 32; tries++ {
-		resp, err := n.EtcCluster.Get(n.Config.Cluster + "/nodes")
+		resp, err := n.EtcKeys.Get(context.Background(), n.Config.Cluster+"/nodes", nil)
 		if err == nil {
 			var nodes []NodeInfo
-			result := resp[0]
+			result := resp.Node
 			if e := json.Unmarshal([]byte(result.Value), &nodes); e != nil {
-				log.Print("Failed to unmarshhal " + n.Config.Cluster + "/nodes")
+				log.Print("Failed to unmarshal " + n.Config.Cluster + "/nodes")
 				return
 			}
 			sort.Sort(NodeInfoList(nodes))
@@ -538,13 +577,19 @@ func (n *Node) CleanShutdown() {
 				}
 			}
 			newNodeData, _ := json.Marshal(newNodes)
-			_, isSet, err := n.EtcCluster.TestAndSet(n.Config.Cluster+"/nodes", resp[0].Value, string(newNodeData), 0)
-			if err != nil || isSet != true {
+			_, err = n.EtcKeys.Set(context.Background(), n.Config.Cluster+"/nodes", string(newNodeData), &etcd.SetOptions{PrevValue: result.Value})
+			if err != nil {
 				log.Print("Failed to update node list. Possibly another node bootstrapped before finish.")
 				continue
 			}
-			n.EtcCluster.Set(n.Config.Cluster+"/nodes/remove/"+n.NodeId, fmt.Sprintf("%s", n.NodeId), 60)
+			_, err = n.EtcKeys.Set(context.Background(), n.Config.Cluster+"/nodes/remove/"+n.NodeId, fmt.Sprintf("%s", n.NodeId), &etcd.SetOptions{TTL: time.Second * 60})
+			if err != nil {
+				log.Printf("Failed to set /nodes/remove/%s: %+v", n.NodeId, err)
+				continue
+			}
 			break
+		} else {
+			log.Print("Error getting nodes during clean shutdown")
 		}
 	}
 	timeout := make(chan bool, 1)

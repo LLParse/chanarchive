@@ -1,0 +1,17 @@
+description "chan archiver worker node"
+
+start on started cassandra
+stop on stopped cassandra
+
+pre-start script
+  etcdctl rm --recursive /streamingchan || true
+end script
+
+exec streamingchan -node \
+  -bindip="127.0.0.1" \
+  -clustername="streamingchan" \
+  -etcd="http://127.0.0.1:2379" \
+  -hostname="172.31.14.172" \
+  -httpport=3333 \
+  -onlyboards="b,gif,s" \
+  -tw=10

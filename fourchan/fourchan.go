@@ -115,3 +115,16 @@ func DownloadThread(board string, thread int) (Thread, error) {
 		return Thread{}, err
 	}
 }
+
+func DownloadFile(board string, tim int64, ext string) ([]byte, error) {
+	req, _ := http.NewRequest("GET", fmt.Sprintf("http://i.4cdn.org/%s/%d%s", board, tim, ext), nil)
+	req.Header.Add("User-Agent", USER_AGENT)
+
+	resp, err := DefaultClient.Do(req)
+	defer resp.Body.Close()
+	if resp == nil {
+		return nil, err
+	}
+
+	return ioutil.ReadAll(resp.Body)
+}

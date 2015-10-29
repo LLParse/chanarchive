@@ -3,7 +3,7 @@ package client
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/wakarimasenco/streamingchan/fourchan"
+	"github.com/llparse/streamingchan/fourchan"
 	"io"
 	"net"
 	"net/http"

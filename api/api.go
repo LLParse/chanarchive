@@ -4,14 +4,13 @@ import (
 	"bytes"
 	"encoding/gob"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"github.com/coreos/etcd/store"
-	"github.com/coreos/go-etcd/etcd"
-	"github.com/pebbe/zmq3"
-	"github.com/wakarimasenco/streamingchan/fourchan"
-	"github.com/wakarimasenco/streamingchan/node"
-	"github.com/wakarimasenco/streamingchan/version"
+  "github.com/coreos/etcd/Godeps/_workspace/src/golang.org/x/net/context"
+  etcd "github.com/coreos/etcd/client"
+	"github.com/pebbe/zmq4"
+	"github.com/llparse/streamingchan/fourchan"
+	"github.com/llparse/streamingchan/node"
+	"github.com/llparse/streamingchan/version"
 	"log"
 	"net/http"
 	"os"
@@ -31,7 +30,7 @@ const (
 type ApiConfig struct {
 	CmdLine        string
 	PortNumber     int
-	Etcd           []string
+	EtcdEndpoints  []string
 	ClusterName    string
 	MaxConnections int
 }
@@ -40,8 +39,8 @@ type ApiServer struct {
 	Stats         *node.NodeStats
 	Config        ApiConfig
 	stop          chan<- bool
-	Etcd          *etcd.Client
-	PostPubSocket *zmq3.Socket
+	EtcKeys       etcd.KeysAPI
+	PostPubSocket *zmq4.Socket
 	Listeners     []chan fourchan.Post
 	Connections   int64
 }
@@ -96,12 +95,7 @@ func (as *ApiServer) commandHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		data, _ := json.Marshal(p)
 		fmt.Fprint(w, string(data))
-		log.Print("Recieved command to shutdown. Shutting down in 2 seconds.")
-		go func() {
-			time.Sleep(2 * time.Second)
-			as.stop <- true
-		}()
-		return
+		go as.shutdown()
 	} else {
 		p := map[string]interface{}{
 			"ok":      0,
@@ -111,6 +105,12 @@ func (as *ApiServer) commandHandler(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, string(data))
 		return
 	}
+}
+
+func (as *ApiServer) shutdown() {
+	log.Print("Recieved command to shutdown. Shutting down in 2 seconds.")
+	time.Sleep(2 * time.Second)
+	as.stop <- true
 }
 
 func (as *ApiServer) streamHandler(w http.ResponseWriter, r *http.Request) {
@@ -138,8 +138,6 @@ func (as *ApiServer) streamHandler(w http.ResponseWriter, r *http.Request) {
 				filters = append(filters, Filter{Name: v})
 			case "trip":
 				filters = append(filters, Filter{Trip: v})
-			case "email":
-				filters = append(filters, Filter{Email: v})
 			}
 		}
 	}
@@ -158,7 +156,7 @@ func (as *ApiServer) streamHandler(w http.ResponseWriter, r *http.Request) {
 	atomic.AddInt64(&as.Connections, 1)
 	defer atomic.AddInt64(&as.Connections, -1)
 
-	subSocket, err := zmq3.NewSocket(zmq3.SUB)
+	subSocket, err := zmq4.NewSocket(zmq4.SUB)
 	if err != nil {
 		w.WriteHeader(500)
 		p := map[string]interface{}{
@@ -170,7 +168,7 @@ func (as *ApiServer) streamHandler(w http.ResponseWriter, r *http.Request) {
 		log.Print("Failed to create Sub Socket: ", err)
 		return
 	}
-	resp, err := as.Etcd.Get(as.Config.ClusterName + "/nodes")
+	resp, err := as.EtcKeys.Get(context.Background(), as.Config.ClusterName + "/nodes", nil)
 	if err != nil {
 		w.WriteHeader(500)
 		p := map[string]interface{}{
@@ -184,7 +182,7 @@ func (as *ApiServer) streamHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var nodes []node.NodeInfo
-	result := resp[0]
+	result := resp.Node
 	if e := json.Unmarshal([]byte(result.Value), &nodes); e != nil {
 		w.WriteHeader(500)
 		p := map[string]interface{}{
@@ -203,36 +201,44 @@ func (as *ApiServer) streamHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	//stop := make(chan bool)
-	updateNodes := make(chan *store.Response)
-	updateNodeWatch := make(chan bool)
-
-	go func(updateNodes chan *store.Response) {
-		for response := range updateNodes {
-			//log.Print("Found new node: " + response.Key)
-			if err := subSocket.Connect(fmt.Sprintf("tcp://%s", response.Value)); err != nil {
+	go func() {
+		path := "/" + as.Config.ClusterName + "/subscribe-post"
+		watcher := as.EtcKeys.Watcher(path, nil)
+		for {
+			resp, err := watcher.Next(context.Background())
+			if err != nil {
+				log.Print("Add PostPub watch failure", err)
+				continue
+			}
+			if err = subSocket.Connect(fmt.Sprintf("tcp://%s", resp.Node.Value)); err != nil {
 				log.Print(err)
 			}
 		}
-	}(updateNodes)
+	}()
 
-	go func(updateNodes chan *store.Response) {
-		for {
-			_, e := as.Etcd.Watch(as.Config.ClusterName+"/add-postpub/", 0, updateNodes, updateNodeWatch)
-			if e.Error() == "User stoped watch" {
-				break
-			} else {
-				log.Print("Error watching: ", e)
-			}
+/*func (as *ApiServer) subscribePostWatcher() {
+	path := "/" + as.Config.ClusterName + "/subscribe-post"
+	watcher := as.EtcKeys.Watcher(path, nil)
+	log.Print(path, " watcher registered")
+	for {
+		resp, err := watcher.Next(context.Background())
+		if err != nil {
+			log.Print(path, " watcher failure:", err)
+			continue
 		}
-		close(updateNodes)
-	}(updateNodes)
+		if err = subSocket.Connect(fmt.Sprintf("tcp://%s", resp.Node.Value)); err != nil {
+			log.Print(err)
+		}
+	}
+}*/
+
 
 	subSocket.SetSubscribe("")
 	w.WriteHeader(200)
 	lastMessage := time.Now()
 	messageSent := false
 	for {
+		time.Sleep(1 * time.Millisecond)
 		if time.Now().Sub(lastMessage) > (30 * time.Second) {
 			m := "{}\r\n"
 			if messageSent {
@@ -247,7 +253,7 @@ func (as *ApiServer) streamHandler(w http.ResponseWriter, r *http.Request) {
 			messageSent = true
 			lastMessage = time.Now()
 		}
-		data, err := subSocket.RecvBytes(zmq3.DONTWAIT)
+		data, err := subSocket.RecvBytes(zmq4.DONTWAIT)
 		if err == syscall.EAGAIN {
 			time.Sleep(1 * time.Millisecond)
 			continue
@@ -256,7 +262,7 @@ func (as *ApiServer) streamHandler(w http.ResponseWriter, r *http.Request) {
 		dec := gob.NewDecoder(bytes.NewBuffer(data))
 		err = dec.Decode(&post)
 		if err != nil {
-			log.Print("Failed to decode thread post ", err)
+			//log.Print("Failed to decode thread post ", err)
 			continue
 		}
 		passed := true
@@ -281,7 +287,6 @@ func (as *ApiServer) streamHandler(w http.ResponseWriter, r *http.Request) {
 		lastMessage = time.Now()
 		messageSent = true
 	}
-	updateNodeWatch <- true
 	subSocket.Close()
 	//stop <- true
 }
@@ -292,7 +297,7 @@ func NewApiServer(flags *FlagConfig, stop chan<- bool) *ApiServer {
 	as.Config.PortNumber = flags.HttpPort
 	as.Config.MaxConnections = flags.MaxConnections
 	as.Config.ClusterName = flags.ClusterName
-	as.Config.Etcd = strings.Split(flags.Etcd, ",")
+	as.Config.EtcdEndpoints = strings.Split(flags.Etcd, ",")
 	as.stop = stop
 	as.Stats = node.NewNodeStats()
 	return as
@@ -301,13 +306,17 @@ func NewApiServer(flags *FlagConfig, stop chan<- bool) *ApiServer {
 func (as *ApiServer) Serve() error {
 	log.Println("Starting HTTP Server on port", as.Config.PortNumber)
 
-	as.Etcd = etcd.NewClient()
-	if as.Config.Etcd != nil {
-		if !as.Etcd.SetCluster(as.Config.Etcd) {
-			log.Print("Failed to register to etcd.")
-			return errors.New("ailed to register to etcd")
-		}
+	cfg := etcd.Config {
+		Endpoints:               as.Config.EtcdEndpoints,
+		Transport:               etcd.DefaultTransport,
+		HeaderTimeoutPerRequest: time.Second,
 	}
+	c, err := etcd.New(cfg)
+	if err != nil {
+		log.Print("Failed to connected to etcd: ", err)
+		return err
+	}
+	as.EtcKeys = etcd.NewKeysAPI(c)
 
 	http.HandleFunc("/status/", as.statusHandler)
 	http.HandleFunc("/commands/", as.commandHandler)

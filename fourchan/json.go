@@ -1,11 +1,22 @@
 package fourchan
 
+type File struct {
+	Md5   string `json:"md5"`
+	Ext   string `json:"ext"`
+	FSize int    `json:"fsize"`
+	Data  []byte `json:"data"`
+
+	Board string `json:"board"`
+	Tim   int64  `json:"tim"`
+}
+
 type Post struct {
 	Board          string      `json:"board"`
 	No             int         `json:"no"`
 	Resto          int         `json:"resto"`
 	Sticky         uint8       `json:"sticky"`
 	Closed         uint8       `json:"closed"`
+	Archived       uint8       `json:"archived"`
 	Now            string      `json:"now"`
 	Time           int         `json:"time"`
 	Name           string      `json:"name"`
@@ -14,11 +25,12 @@ type Post struct {
 	Capcode        string      `json:"capcode"`
 	Country        string      `json:"country"`
 	CountryName    string      `json:"country_name"`
-	Email          string      `json:"email"`
 	Sub            string      `json:"sub"`
 	Com            string      `json:"com"`
 	Tim            int64       `json:"tim"`
 	Filename       string      `json:"filename"`
+	Ext            string      `json:"ext"`
+	FSize          int         `json:"fsize"`
 	Md5            string      `json:"md5"`
 	W              int         `json:"w"`
 	H              int         `json:"h"`

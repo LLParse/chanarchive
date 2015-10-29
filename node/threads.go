@@ -1,7 +1,7 @@
 package node
 
 import (
-	"github.com/wakarimasenco/streamingchan/fourchan"
+	"github.com/llparse/streamingchan/fourchan"
 	"time"
 )
 
@@ -13,7 +13,7 @@ func (n *Node) ProcessThread(threadInfo fourchan.ThreadInfo) {
 		if thread, e := fourchan.DownloadThread(threadInfo.Board, threadInfo.No); e == nil {
 			z := int64(0)
 			for _, post := range thread.Posts {
-				if post.Time > threadInfo.MinPost && post.Time <= threadInfo.LastModified {
+				if post.Time >= threadInfo.MinPost && post.Time <= threadInfo.LastModified {
 					if n.PostPub == nil {
 						return
 					}

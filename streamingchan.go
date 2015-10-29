@@ -3,9 +3,9 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/wakarimasenco/streamingchan/api"
-	"github.com/wakarimasenco/streamingchan/node"
-	"github.com/wakarimasenco/streamingchan/version"
+	"github.com/llparse/streamingchan/api"
+	"github.com/llparse/streamingchan/node"
+	"github.com/llparse/streamingchan/version"
 	"math/rand"
 	"os"
 	"os/signal"

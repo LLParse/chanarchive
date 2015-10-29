@@ -1,7 +1,7 @@
 package api
 
 import (
-	"github.com/wakarimasenco/streamingchan/fourchan"
+	"github.com/llparse/streamingchan/fourchan"
 	"strings"
 )
 
@@ -11,7 +11,6 @@ type Filter struct {
 	Comment string
 	Name    string
 	Trip    string
-	Email   string
 }
 
 func (f *Filter) Passes(post fourchan.Post) bool {
@@ -28,9 +27,6 @@ func (f *Filter) Passes(post fourchan.Post) bool {
 		return false
 	}
 	if f.Trip != "" && !strings.Contains(strings.ToLower(post.Trip), strings.ToLower(f.Trip)) {
-		return false
-	}
-	if f.Email != "" && !strings.Contains(strings.ToLower(post.Email), strings.ToLower(f.Email)) {
 		return false
 	}
 	return true
