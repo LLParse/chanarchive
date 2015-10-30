@@ -295,6 +295,21 @@ func (as *ApiServer) streamHandler(w http.ResponseWriter, r *http.Request) {
 func (as *ApiServer) boardHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
+	pathTokens := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	switch len(pathTokens) {
+	case 1:
+		boards := as.Storage.GetBoards("4")
+		j, _ := json.Marshal(boards)
+		if _, err := fmt.Fprint(w, string(j)); err != nil {
+			log.Print(err)
+		}
+	case 2:
+		threads := as.Storage.GetThreads("4", pathTokens[1])
+		j, _ := json.Marshal(threads)
+		if _, err := fmt.Fprint(w, string(j)); err != nil {
+			log.Print(err)
+		}
+	}
 }
 
 func NewApiServer(flags *FlagConfig, stop chan<- bool) *ApiServer {
@@ -323,10 +338,10 @@ func NewApiServer(flags *FlagConfig, stop chan<- bool) *ApiServer {
 
 func (as *ApiServer) Serve() error {
 	log.Println("Starting HTTP Server on port", as.Config.PortNumber)
-	http.HandleFunc("/status/", as.statusHandler)
-	http.HandleFunc("/commands/", as.commandHandler)
+	http.HandleFunc("/status/",     as.statusHandler)
+	http.HandleFunc("/commands/",   as.commandHandler)
 	http.HandleFunc("/stream.json", as.streamHandler)
-	http.HandleFunc("/boards/", as.boardHandler)
+	http.HandleFunc("/boards/",     as.boardHandler)
 	if e := http.ListenAndServe(fmt.Sprintf(":%d", as.Config.PortNumber), nil); e != nil {
 		log.Print("Error starting server", e)
 		return e

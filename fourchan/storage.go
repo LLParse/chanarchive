@@ -80,3 +80,27 @@ func (s *Storage) FileExists(f *File) bool {
   }
   return true
 }
+
+func (s *Storage) GetBoards(channel string) []*Board {
+  iter := s.session.Query(`SELECT board, title, worksafe, pages, perpage FROM board WHERE chan = ?`, channel).Iter()
+  var boards []*Board
+  board := &Board{}
+  for iter.Scan(&board.Board, &board.Title, &board.WsBoard, &board.Pages, &board.PerPage) {
+    boards = append(boards, board)
+  }
+  return boards
+}
+
+func (s *Storage) GetThreads(channel string, board string) []*ThreadInfo {
+  var threads []*ThreadInfo
+  iter := s.session.Query(`SELECT number FROM thread WHERE chan = ? AND board = ?`, channel, board).Iter()
+  for {
+    thread := &ThreadInfo{}
+    if !iter.Scan(&thread.No) {
+      break
+    }
+    thread.Board = board
+    threads = append(threads, thread)
+  }
+  return threads
+}
