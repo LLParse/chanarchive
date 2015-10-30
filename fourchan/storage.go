@@ -137,3 +137,12 @@ func (s *Storage) GetPosts(channel string, board string, threadNo int, sort stri
   return posts
 }
 
+func (s *Storage) GetFile(md5 string) *File {
+  file := &File{}
+  query := s.session.Query(`SELECT md5, ext, fsize, data FROM file WHERE md5 = ?`, md5)
+  if err := query.Scan(&file.Md5, &file.Ext, &file.FSize, &file.Data); err != nil {
+    log.Print("Couldn't get file ", md5, ": ", err)
+  }
+  return file
+}
+

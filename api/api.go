@@ -335,6 +335,29 @@ func (as *ApiServer) boardHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (as *ApiServer) fileHandler(w http.ResponseWriter, r *http.Request) {
+	filename := r.URL.Path[7:]
+	fileparts := strings.Split(filename, ".")
+	file := as.Storage.GetFile(fileparts[0])
+	switch fileparts[1] {
+	case "jpg":
+		w.Header().Set("Content-Type", "image/jpeg")
+	case "png":
+		w.Header().Set("Content-Type", "image/png")
+	case "gif":
+		w.Header().Set("Content-Type", "image/gif")
+	case "webm":
+		w.Header().Set("Content-Type", "video/webm")
+	default:
+		w.Header().Set("Content-Type", "image/"+fileparts[1])
+		log.Print("unknown file type: ", fileparts[1])
+	}
+	w.Header().Set("Content-Length", strconv.Itoa(len(file.Data)))
+	if _, err := bytes.NewReader(file.Data).WriteTo(w); err != nil {
+		log.Print("file write error: ", err)
+	}
+}
+
 func NewApiServer(flags *FlagConfig, stop chan<- bool) *ApiServer {
 	as := new(ApiServer)
 	as.Config.CmdLine = strings.Join(os.Args, " ")
@@ -365,6 +388,7 @@ func (as *ApiServer) Serve() error {
 	http.HandleFunc("/commands/",   as.commandHandler)
 	http.HandleFunc("/stream.json", as.streamHandler)
 	http.HandleFunc("/boards/",     as.boardHandler)
+	http.HandleFunc("/files/",      as.fileHandler)
 	if e := http.ListenAndServe(fmt.Sprintf(":%d", as.Config.PortNumber), nil); e != nil {
 		log.Print("Error starting server", e)
 		return e
