@@ -111,7 +111,6 @@ func (s *Storage) GetThreads(channel string, board string, sort string) []*Threa
   for {
     thread := &ThreadInfo{}
     if iter.Scan(&thread.No) {
-      thread.Board = board
       threads = append(threads, thread)
     } else {
       break

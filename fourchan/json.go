@@ -63,7 +63,7 @@ type Board struct {
 }
 
 type ThreadInfo struct {
-	Board        string `json:"board"`
+	Board        string `json:"board,omitempty"`
 	No           int    `json:"no"`
 	LastModified int    `json:"last_modified,omitempty"`
 	MinPost      int    `json:"min_post,omitempty"`
