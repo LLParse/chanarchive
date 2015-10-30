@@ -11,7 +11,9 @@ type FlagConfig struct {
 	ThreadWorkers int
 	Hostname      string
 	BindIp        string
-	Etcd          string
+	EtcdEndpoints string
+	CassEndpoints string
+	CassKeyspace  string
 	ClusterName   string
 	OnlyBoards    string
 	ExcludeBoards string
@@ -34,7 +36,9 @@ func flags() *FlagConfig {
 	flag.BoolVar(&(fc.Node), "node", false, "Node : Enable node proces. ")
 	flag.StringVar(&(fc.Hostname), "hostname", hostname, "Node : Hostname or ip, visible from other machines on the network. ")
 	flag.StringVar(&(fc.BindIp), "bindip", "127.0.0.1", "Node : Address to bind to.")
-	flag.StringVar(&(fc.Etcd), "etcd", "", "Node : Etcd addresses (Comma seperated)")
+	flag.StringVar(&(fc.EtcdEndpoints), "etcd", "http://127.0.0.1:2379", "Node : Etcd addresses (Comma seperated)")
+	flag.StringVar(&(fc.CassEndpoints), "cassandra", "127.0.0.1", "API : Cassandra addresses (comma-delimited)")
+	flag.StringVar(&(fc.CassKeyspace), "keyspace", "chan", "API : Cassandra keyspace")
 	flag.StringVar(&(fc.ClusterName), "clustername", "streamingchan", "Node : Cluster name")
 	flag.StringVar(&(fc.OnlyBoards), "onlyboards", "", "Node : Boards (a,b,sp) to process. Comma seperated.")
 	flag.StringVar(&(fc.ExcludeBoards), "excludeboards", "", "Node : Boards (a,b,sp) to exclude. Comma seperated.")

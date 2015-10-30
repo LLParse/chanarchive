@@ -65,8 +65,8 @@ func ctrlc(stop chan<- bool) {
 func donode() {
 	flag.Parse()
 	fc := node.Flags
-	if fc.Etcd == "" {
-		fmt.Printf("ERROR: Invalid etcd nodes (%s) specified. \n\nView the command line options with `%s node -h` \nOr read the docs online at Github.\n", fc.Etcd, os.Args[0])
+	if fc.EtcdEndpoints == "" {
+		fmt.Printf("ERROR: Invalid etcd nodes (%s) specified. \n\nView the command line options with `%s node -h` \nOr read the docs online at Github.\n", fc.EtcdEndpoints, os.Args[0])
 		fmt.Printf("Flags: \n")
 		flag.PrintDefaults()
 		os.Exit(1)
