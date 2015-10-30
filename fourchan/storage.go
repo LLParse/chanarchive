@@ -54,6 +54,13 @@ func (s *Storage) PersistThread(t *ThreadInfo) {
   }
 }
 
+func (s *Storage) PersistThreadPosts(t *ThreadInfo, post []int) {
+  if err := s.session.Query(`UPDATE thread SET posts = posts + ? WHERE chan = ? AND board = ? AND number = ?`,
+    post, "4", t.Board, t.No).Exec(); err != nil {
+    log.Print("Persist thread post error: ", err)
+  }
+}
+
 func (s *Storage) PersistPost(p *Post) {
   if err := s.session.Query(`INSERT INTO post (chan, board, number, resto, sticky, closed, now, time, name, trip, id, capcode, country, countryName, sub, com, tim, filename, ext, fsize, md5, w, h, tnw, tnh, fileDeleted, spoiler, customSpoiler, omittedPosts, omittedImages, replies, images, bumpLimit, imageLimit, lastModified) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     "4", p.Board, p.No, p.Resto, p.Sticky, p.Closed, p.Now, p.Time, p.Name, p.Trip, p.Id, p.Capcode, p.Country, p.CountryName, 
@@ -119,16 +126,21 @@ func (s *Storage) GetThreads(channel string, board string, sort string) []*Threa
   return threads
 }
 
-func (s *Storage) GetPosts(channel string, board string, threadNo int, sort string) []*Post {
-  if sort == "" {
-    sort = "ASC"
+func (s *Storage) GetPostNumbers(channel string, board string, threadNo int) []int {
+  query := s.session.Query(`SELECT posts FROM thread WHERE chan = ? AND board = ? AND number = ?`, channel, board, threadNo)
+  var postNos []int
+  if err := query.Scan(&postNos); err != nil {
+    log.Print("Couldn't get posts for thread ", threadNo)
   }
-  // FIXME needs threadNo
-  iter := s.session.Query(`SELECT number FROM post WHERE chan = ? AND board = ? ORDER BY number ` + sort, channel, board).Iter()
+  return postNos
+}
+
+func (s *Storage) GetPosts(channel string, board string, postNos []int) []*Post {
+  iter := s.session.Query(`SELECT number, com, tim, filename, ext, fsize, md5 FROM post WHERE chan = ? AND board = ? AND number IN ?`, channel, board, postNos).Iter()
   var posts []*Post
   for {
     post := &Post{}
-    if iter.Scan(&post.No) {
+    if iter.Scan(&post.No, &post.Com, &post.Tim, &post.Filename, &post.Ext, &post.FSize, &post.Md5) {
       posts = append(posts, post)
     } else {
       break

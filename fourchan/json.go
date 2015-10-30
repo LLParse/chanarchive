@@ -13,40 +13,40 @@ type File struct {
 type Post struct {
 	Board          string      `json:"board,omitempty"`
 	No             int         `json:"no"`
-	Resto          int         `json:"resto"`
-	Sticky         uint8       `json:"sticky"`
-	Closed         uint8       `json:"closed"`
-	Archived       uint8       `json:"archived"`
-	Now            string      `json:"now"`
-	Time           int         `json:"time"`
-	Name           string      `json:"name"`
-	Trip           string      `json:"trip"`
-	Id             string      `json:"id"`
-	Capcode        string      `json:"capcode"`
-	Country        string      `json:"country"`
-	CountryName    string      `json:"country_name"`
-	Sub            string      `json:"sub"`
+	Resto          int         `json:"resto,omitempty"`
+	Sticky         uint8       `json:"sticky,omitempty"`
+	Closed         uint8       `json:"closed,omitempty"`
+	Archived       uint8       `json:"archived,omitempty"`
+	Now            string      `json:"now,omitempty"`
+	Time           int         `json:"time,omitempty"`
+	Name           string      `json:"name,omitempty"`
+	Trip           string      `json:"trip,omitempty"`
+	Id             string      `json:"id,omitempty"`
+	Capcode        string      `json:"capcode,omitempty"`
+	Country        string      `json:"country,omitempty"`
+	CountryName    string      `json:"country_name,omitempty"`
+	Sub            string      `json:"sub,omitempty"`
 	Com            string      `json:"com"`
 	Tim            int64       `json:"tim"`
 	Filename       string      `json:"filename"`
 	Ext            string      `json:"ext"`
 	FSize          int         `json:"fsize"`
 	Md5            string      `json:"md5"`
-	W              int         `json:"w"`
-	H              int         `json:"h"`
-	TnW            int         `json:"tn_w"`
-	TnH            int         `json:"tn_h"`
-	FileDeleted    uint8       `json:"filedeleted"`
-	Spoiler        uint8       `json:"spoiler"`
-	CustomSpoiler  int         `json:"custom_spoiler"`
-	OmittedPosts   int         `json:"omitted_posts"`
-	OmittedImages  int         `json:"omitted_images"`
-	Replies        int         `json:"replies"`
-	Images         int         `json:"images"`
-	BumpLimit      uint8       `json:"bumplimit"`
-	ImageLimit     uint8       `json:"imagelimit"`
-	CapcodeReplies interface{} `json:"capcode_replies"`
-	LastModified   int         `json:"last_modified"`
+	W              int         `json:"w,omitempty"`
+	H              int         `json:"h,omitempty"`
+	TnW            int         `json:"tn_w,omitempty"`
+	TnH            int         `json:"tn_h,omitempty"`
+	FileDeleted    uint8       `json:"filedeleted,omitempty"`
+	Spoiler        uint8       `json:"spoiler,omitempty"`
+	CustomSpoiler  int         `json:"custom_spoiler,omitempty"`
+	OmittedPosts   int         `json:"omitted_posts,omitempty"`
+	OmittedImages  int         `json:"omitted_images,omitempty"`
+	Replies        int         `json:"replies,omitempty"`
+	Images         int         `json:"images,omitempty"`
+	BumpLimit      uint8       `json:"bumplimit,omitempty"`
+	ImageLimit     uint8       `json:"imagelimit,omitempty"`
+	CapcodeReplies interface{} `json:"capcode_replies,omitempty"`
+	LastModified   int         `json:"last_modified,omitempty"`
 }
 
 type Thread struct {

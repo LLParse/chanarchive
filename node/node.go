@@ -58,9 +58,8 @@ type Node struct {
 	Config           NodeConfig
 	EtcKeys          etcd.KeysAPI
 	ThreadPubSocket  *zmq4.Socket
-	ThreadPub        chan fourchan.ThreadInfo
+	ThreadPub        chan *fourchan.ThreadInfo
 	ThreadSubSocket  *zmq4.Socket
-	ThreadSub        chan fourchan.ThreadInfo
 	PostPubSocket    *zmq4.Socket
 	PostPub          chan fourchan.Post
 	FilePub          chan *fourchan.File
@@ -103,12 +102,6 @@ func randInt(min, max int) int {
 
 func (n *Node) Close() {
 	n.Closed = true
-	if n.ThreadSub != nil {
-		go func() { _, _ = <-n.ThreadSub }()
-		time.Sleep(5 * time.Millisecond)
-		close(n.ThreadSub)
-	}
-	n.ThreadSub = nil
 	if n.ThreadPub != nil {
 		go func() { _, _ = <-n.ThreadPub }()
 		time.Sleep(5 * time.Millisecond)
@@ -284,9 +277,8 @@ func (n *Node) Bootstrap() error {
 		}
 		log.Print("Finished connecting, watching nodes...")
 
-		n.ThreadPub = make(chan fourchan.ThreadInfo)
+		n.ThreadPub = make(chan *fourchan.ThreadInfo)
 		n.PostPub = make(chan fourchan.Post)
-		n.ThreadSub = make(chan fourchan.ThreadInfo)
 		n.FilePub = make(chan *fourchan.File)
 
 		go n.addNodeWatcher()
@@ -308,32 +300,6 @@ func (n *Node) Bootstrap() error {
 			n.rollbackBootstrap()
 			continue
 		}
-
-		go n.bootstrapThreadWorkers()
-
-		go func() {
-			for !n.Closed {
-				time.Sleep(1 * time.Millisecond)
-				data, err := n.ThreadSubSocket.RecvBytes(zmq4.DONTWAIT)
-				if err == syscall.EAGAIN {
-					time.Sleep(1 * time.Millisecond)
-					continue
-				}
-				var threadInfo fourchan.ThreadInfo
-				dec := gob.NewDecoder(bytes.NewBuffer(data))
-				err = dec.Decode(&threadInfo)
-				if err != nil {
-					//log.Print(data)
-					//log.Print("Failed to decode thread gob ", err)
-					continue
-				}
-				if n.ThreadSub != nil {
-					n.ThreadSub <- threadInfo
-				}
-			}
-			n.ThreadSubSocket.Close()
-			n.SocketWaitGroup.Done()
-		}()
 
 		go n.threadPublisher()
 		go n.postPublisher()
@@ -394,7 +360,7 @@ func (n *Node) topologyWatcher() {
 func (n *Node) threadPublisher() {
 	for threadInfo := range n.ThreadPub {
 		//log.Printf("publisher received thread: %+v", threadInfo)
-		n.Storage.PersistThread(&threadInfo)
+		n.Storage.PersistThread(threadInfo)
 		var buff bytes.Buffer
 		enc := gob.NewEncoder(&buff)
 		err := enc.Encode(threadInfo)
@@ -411,10 +377,38 @@ func (n *Node) threadPublisher() {
 				break
 			}
 		}
+		n.processThread(threadInfo)
 	}
 	n.ThreadPubSocket.Close()
 	n.SocketWaitGroup.Done()
 }
+
+func (n *Node) processThread(threadInfo *fourchan.ThreadInfo) {
+	defer n.RoutineWaitGroup.Done()
+	n.RoutineWaitGroup.Add(1)
+	n.Stats.Incr(METRIC_THREADS, 1)
+	for tries := 0; tries < 3; tries++ {
+		if thread, e := fourchan.DownloadThread(threadInfo.Board, threadInfo.No); e == nil {
+			z := int64(0)
+			var postNos []int
+			for _, post := range thread.Posts {
+				if post.Time > threadInfo.MinPost && post.Time <= threadInfo.LastModified {
+					if n.PostPub == nil {
+						return
+					}
+					postNos = append(postNos, post.No)
+					n.PostPub <- post
+					z++
+				}
+			}
+			n.Storage.PersistThreadPosts(threadInfo, postNos)
+			n.Stats.Incr(METRIC_POSTS, z)
+			return
+		}
+		time.Sleep(time.Duration(tries+1) * 500 * time.Millisecond)
+	}
+}
+
 
 func (n *Node) postPublisher() {
 	for post := range n.PostPub {
@@ -462,7 +456,7 @@ func (n *Node) filePublisher() {
 				log.Printf("Error downloading file %+v: %+v", file, err)
 			}
 		} else {
-			log.Printf("File exists: %+v", file)
+			//log.Printf("File exists: %+v", file)
 		}
 	}
 }
@@ -527,24 +521,6 @@ func (n *Node) divideBoards() {
 		log.Print("Failed to get node configuration.")
 		return
 	}
-}
-
-func (n *Node) bootstrapThreadWorkers() {
-	var wg sync.WaitGroup
-	for i := 0; i < THREAD_WORKERS; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for ti := range n.ThreadSub {
-				if ti.OwnerId == n.NodeId {
-					//log.Printf("Process thread %+v", ti)
-					n.ProcessThread(ti)
-				}
-			}
-		}()
-	}
-
-	wg.Wait()
 }
 
 func (n *Node) CleanShutdown() {

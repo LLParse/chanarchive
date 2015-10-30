@@ -89,7 +89,7 @@ func (n *Node) ProcessBoard(nodeIds []string, board string, stop <-chan bool) {
 							return
 						}
 						//log.Printf("Sending %d to %s", thread.No, thread.OwnerId)
-						n.ThreadPub <- thread
+						n.ThreadPub <- &thread
 						multiplier = 1
 					}
 					if thread.LastModified > maxMod {

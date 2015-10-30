@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS chan.thread (
   chan         text,
   board        text,
   number       int,
+  posts        set<int>,
   PRIMARY KEY ((chan, board), number)
 );
 
