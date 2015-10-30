@@ -42,7 +42,6 @@ type NodeInfo struct {
 }
 
 type NodeConfig struct {
-	EtcdEndpoints []string
 	Hostname      string
 	BindIp        string
 	OnlyBoards    []string
@@ -139,7 +138,6 @@ func NewNode(flags *FlagConfig) *Node {
 	n.Stats = NewNodeStats()
 	n.Config.Hostname = flags.Hostname
 	n.Config.BindIp = flags.BindIp
-	n.Config.EtcdEndpoints = strings.Split(flags.Etcd, ",")
 	n.Config.Cluster = flags.ClusterName
 	if flags.OnlyBoards != "" {
 		n.Config.OnlyBoards = strings.Split(flags.OnlyBoards, ",")
@@ -147,6 +145,18 @@ func NewNode(flags *FlagConfig) *Node {
 	if flags.ExcludeBoards != "" {
 		n.Config.ExcludeBoards = strings.Split(flags.ExcludeBoards, ",")
 	}
+	n.Storage = fourchan.NewStorage(flags.CassKeyspace, strings.Split(flags.CassEndpoints, ",")...)
+	cfg := etcd.Config {
+		Endpoints:               strings.Split(flags.EtcdEndpoints, ","),
+		Transport:               etcd.DefaultTransport,
+		HeaderTimeoutPerRequest: time.Second,
+	}
+	c, err := etcd.New(cfg)
+	if err != nil {
+		log.Fatal("Failed to connected to etcd: ", err)
+	}
+	n.EtcKeys = etcd.NewKeysAPI(c)
+
 	n.Shutdown = false
 	n.Closed = false
 	return n
@@ -176,8 +186,6 @@ func (n *Node) Bootstrap() error {
 	log.Print("Bootstrapping node...")
 	n.NodeId = randNodeId()
 	log.Print("Node Id:", n.NodeId)
-
-	n.Storage = fourchan.NewStorage("chan", "127.0.0.1")
 
 	log.Print("Downloading 4Chan boards list...")
 	var err error
@@ -217,18 +225,6 @@ func (n *Node) Bootstrap() error {
 		return err
 	}
 	n.SocketWaitGroup.Add(2)
-
-	cfg := etcd.Config {
-		Endpoints:               n.Config.EtcdEndpoints,
-		Transport:               etcd.DefaultTransport,
-		HeaderTimeoutPerRequest: time.Second,
-	}
-	c, err := etcd.New(cfg)
-	if err != nil {
-		log.Print("Failed to connected to etcd: ", err)
-		return err
-	}
-	n.EtcKeys = etcd.NewKeysAPI(c)
 
 	nodepath := "/" + n.Config.Cluster + "/nodes"
 	for tries := 0; tries < 10; tries++ {
@@ -397,6 +393,7 @@ func (n *Node) topologyWatcher() {
 
 func (n *Node) threadPublisher() {
 	for threadInfo := range n.ThreadPub {
+		//log.Printf("publisher received thread: %+v", threadInfo)
 		n.Storage.PersistThread(&threadInfo)
 		var buff bytes.Buffer
 		enc := gob.NewEncoder(&buff)
