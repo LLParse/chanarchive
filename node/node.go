@@ -451,7 +451,7 @@ func (n *Node) filePublisher() {
 			data, err := fourchan.DownloadFile(file.Board, file.Tim, file.Ext)
 			if err == nil {
 				file.Data = data
-				n.Storage.PersistFile(file)
+				n.Storage.WriteFile(file)
 			} else {
 				log.Printf("Error downloading file %+v: %+v", file, err)
 			}

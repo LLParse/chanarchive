@@ -68,3 +68,15 @@ CREATE TABLE IF NOT EXISTS chan.file (
   data  blob,
   PRIMARY KEY (md5)
 );
+
+CREATE TABLE IF NOT EXISTS chan.file_time (
+  time bigint,
+  md5 text,
+  PRIMARY KEY (time)
+);
+
+CREATE TABLE IF NOT EXISTS chan.file_hash (
+  md5  text,
+  time set<bigint>,
+  PRIMARY KEY (md5)
+);

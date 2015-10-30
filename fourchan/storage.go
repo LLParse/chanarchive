@@ -70,10 +70,29 @@ func (s *Storage) PersistPost(p *Post) {
   }
 }
 
-func (s *Storage) PersistFile(f *File) {
+func (s *Storage) WriteFile(f *File) {
   if err := s.session.Query(`INSERT INTO file (md5, ext, fsize, data) VALUES (?, ?, ?, ?)`,
     f.Md5, f.Ext, f.FSize, f.Data).Exec(); err != nil {
     log.Print("Persist file error: ", err)
+  } else {
+    s.writeFileTime(f)
+    s.writeFileHash(f)
+  }
+}
+
+func (s *Storage) writeFileTime(f *File) {
+  if err := s.session.Query(`INSERT INTO file_time (time, md5) VALUES (?, ?)`, f.Tim, f.Md5).Exec(); err != nil {
+    log.Print("Write file time error: ", err)
+  }
+}
+
+func (s *Storage) writeFileHash(f *File) {
+  if err := s.session.Query(`INSERT INTO file_hash (md5) VALUES (?)`, f.Md5).Exec(); err != nil {
+    log.Print("Write file hash error: ", err)
+  } else {
+    if err = s.session.Query(`UPDATE file_hash SET time = time + ? WHERE md5 = ?`, []int64{f.Tim}, f.Md5).Exec(); err != nil {
+      log.Print("Write file hash error: ", err)
+    }    
   }
 }
 
@@ -149,7 +168,7 @@ func (s *Storage) GetPosts(channel string, board string, postNos []int) []*Post 
   return posts
 }
 
-func (s *Storage) GetFile(md5 string) *File {
+func (s *Storage) GetFileByHash(md5 string) *File {
   file := &File{}
   query := s.session.Query(`SELECT md5, ext, fsize, data FROM file WHERE md5 = ?`, md5)
   if err := query.Scan(&file.Md5, &file.Ext, &file.FSize, &file.Data); err != nil {
@@ -158,3 +177,10 @@ func (s *Storage) GetFile(md5 string) *File {
   return file
 }
 
+func (s *Storage) GetFileByTime(time int64) *File {
+  var md5 string
+  if err := s.session.Query(`SELECT md5 FROM file_time WHERE time = ?`, time).Scan(&md5); err != nil {
+    log.Print("Couldn't get md5 for file ", time)
+  }
+  return s.GetFileByHash(md5)
+}

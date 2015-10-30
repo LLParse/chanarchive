@@ -74,6 +74,12 @@ func NewApiServer(stop chan<- bool) *ApiServer {
 	return as
 }
 
+func (as *ApiServer) Shutdown() {
+	log.Print("Recieved command to shutdown. Shutting down in 2 seconds.")
+	time.Sleep(2 * time.Second)
+	as.stop <- true
+}
+
 func (as *ApiServer) statusHandler(w http.ResponseWriter, r *http.Request) {
 	var memStats runtime.MemStats
 	runtime.ReadMemStats(&memStats)
@@ -117,7 +123,7 @@ func (as *ApiServer) commandHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		data, _ := json.Marshal(p)
 		fmt.Fprint(w, string(data))
-		go as.shutdown()
+		go as.Shutdown()
 	} else {
 		p := map[string]interface{}{
 			"ok":      0,
@@ -127,12 +133,6 @@ func (as *ApiServer) commandHandler(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, string(data))
 		return
 	}
-}
-
-func (as *ApiServer) shutdown() {
-	log.Print("Recieved command to shutdown. Shutting down in 2 seconds.")
-	time.Sleep(2 * time.Second)
-	as.stop <- true
 }
 
 func (as *ApiServer) boardHandler(w http.ResponseWriter, r *http.Request) {
@@ -179,35 +179,54 @@ func (as *ApiServer) boardHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (as *ApiServer) fileHandler(w http.ResponseWriter, r *http.Request) {
-	filename := r.URL.Path[7:]
+func (as *ApiServer) hashFileHandler(w http.ResponseWriter, r *http.Request) {
+	filename := r.URL.Path[5:]
 	fileparts := strings.Split(filename, ".")
-	file := as.Storage.GetFile(fileparts[0])
-	switch fileparts[1] {
-	case "jpg":
-		w.Header().Set("Content-Type", "image/jpeg")
-	case "png":
-		w.Header().Set("Content-Type", "image/png")
-	case "gif":
-		w.Header().Set("Content-Type", "image/gif")
-	case "webm":
-		w.Header().Set("Content-Type", "video/webm")
-	default:
-		w.Header().Set("Content-Type", "image/"+fileparts[1])
-		log.Print("unknown file type: ", fileparts[1])
-	}
-	w.Header().Set("Content-Length", strconv.Itoa(len(file.Data)))
-	if _, err := bytes.NewReader(file.Data).WriteTo(w); err != nil {
-		log.Print("file write error: ", err)
+	file := as.Storage.GetFileByHash(fileparts[0])
+	as.writeFile(w, file)
+}
+
+func (as *ApiServer) timeFileHandler(w http.ResponseWriter, r *http.Request) {
+	filename := r.URL.Path[6:]
+	fileparts := strings.Split(filename, ".")
+	if time, err := strconv.ParseInt(fileparts[0], 10, 64); err == nil {
+		file := as.Storage.GetFileByTime(time)
+		as.writeFile(w, file)
+	} else {
+		log.Print("invalid file: ", err)
 	}
 }
+
+func (as *ApiServer) writeFile(w http.ResponseWriter, f *fourchan.File) {
+	switch f.Ext {
+	case ".jpg":
+		w.Header().Set("Content-Type", "image/jpeg")
+	case ".jpeg":
+		w.Header().Set("Content-Type", "image/jpeg")
+	case ".png":
+		w.Header().Set("Content-Type", "image/png")
+	case ".gif":
+		w.Header().Set("Content-Type", "image/gif")
+	case ".webm":
+		w.Header().Set("Content-Type", "video/webm")
+	default:
+		w.Header().Set("Content-Type", "image/"+f.Ext)
+		log.Print("unknown file type: ", f.Ext)
+	}
+	w.Header().Set("Content-Length", strconv.Itoa(len(f.Data)))
+	if _, err := bytes.NewReader(f.Data).WriteTo(w); err != nil {
+		log.Print("file write error: ", err)
+	}	
+}
+
 
 func (as *ApiServer) Serve() error {
 	log.Println("Starting HTTP Server on port", as.Config.HttpPort)
 	http.HandleFunc("/status/",     as.statusHandler)
 	http.HandleFunc("/commands/",   as.commandHandler)
 	http.HandleFunc("/boards/",     as.boardHandler)
-	http.HandleFunc("/files/",      as.fileHandler)
+	http.HandleFunc("/md5/",        as.hashFileHandler)
+	http.HandleFunc("/file/",       as.timeFileHandler)
 	if e := http.ListenAndServe(fmt.Sprintf(":%d", as.Config.HttpPort), nil); e != nil {
 		log.Print("Error starting server", e)
 		return e
