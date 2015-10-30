@@ -11,7 +11,7 @@ type File struct {
 }
 
 type Post struct {
-	Board          string      `json:"board"`
+	Board          string      `json:"board,omitempty"`
 	No             int         `json:"no"`
 	Resto          int         `json:"resto"`
 	Sticky         uint8       `json:"sticky"`
@@ -54,7 +54,7 @@ type Thread struct {
 }
 
 type Board struct {
-	Threads []Thread `json:"threads"`
+	Threads []Thread `json:"threads,omitempty"`
 	Board   string   `json:"board"`
 	Title   string   `json:"title"`
 	WsBoard uint8    `json:"ws_board"`
@@ -65,9 +65,9 @@ type Board struct {
 type ThreadInfo struct {
 	Board        string `json:"board"`
 	No           int    `json:"no"`
-	LastModified int    `json:"last_modified"`
-	MinPost      int    `json:"min_post"`
-	OwnerId      string `json:"owner_hint"`
+	LastModified int    `json:"last_modified,omitempty"`
+	MinPost      int    `json:"min_post,omitempty"`
+	OwnerId      string `json:"owner_hint,omitempty"`
 }
 
 type Threads struct {

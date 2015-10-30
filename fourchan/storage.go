@@ -81,26 +81,60 @@ func (s *Storage) FileExists(f *File) bool {
   return true
 }
 
-func (s *Storage) GetBoards(channel string) []*Board {
-  iter := s.session.Query(`SELECT board, title, worksafe, pages, perpage FROM board WHERE chan = ?`, channel).Iter()
+type SortOrder struct {
+
+}
+
+func (s *Storage) GetBoards(channel string, sort string) []*Board {
+  if sort == "" {
+    sort = "ASC"
+  }
+  iter := s.session.Query(`SELECT board, title, worksafe, pages, perpage FROM board WHERE chan = ? ORDER BY board ` + sort, channel).Iter()
   var boards []*Board
-  board := &Board{}
-  for iter.Scan(&board.Board, &board.Title, &board.WsBoard, &board.Pages, &board.PerPage) {
-    boards = append(boards, board)
+  for {
+    board := &Board{}
+    if iter.Scan(&board.Board, &board.Title, &board.WsBoard, &board.Pages, &board.PerPage) {
+      boards = append(boards, board)
+    } else {
+      break
+    }
   }
   return boards
 }
 
-func (s *Storage) GetThreads(channel string, board string) []*ThreadInfo {
+func (s *Storage) GetThreads(channel string, board string, sort string) []*ThreadInfo {
+  if sort == "" {
+    sort = "ASC"
+  }
+  iter := s.session.Query(`SELECT number FROM thread WHERE chan = ? AND board = ? ORDER BY number ` + sort, channel, board).Iter()
   var threads []*ThreadInfo
-  iter := s.session.Query(`SELECT number FROM thread WHERE chan = ? AND board = ?`, channel, board).Iter()
   for {
     thread := &ThreadInfo{}
-    if !iter.Scan(&thread.No) {
+    if iter.Scan(&thread.No) {
+      thread.Board = board
+      threads = append(threads, thread)
+    } else {
       break
     }
-    thread.Board = board
-    threads = append(threads, thread)
   }
   return threads
 }
+
+func (s *Storage) GetPosts(channel string, board string, threadNo int, sort string) []*Post {
+  if sort == "" {
+    sort = "ASC"
+  }
+  // FIXME needs threadNo
+  iter := s.session.Query(`SELECT number FROM post WHERE chan = ? AND board = ? ORDER BY number ` + sort, channel, board).Iter()
+  var posts []*Post
+  for {
+    post := &Post{}
+    if iter.Scan(&post.No) {
+      posts = append(posts, post)
+    } else {
+      break
+    }
+  }
+  return posts
+}
+

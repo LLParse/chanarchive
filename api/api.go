@@ -295,19 +295,42 @@ func (as *ApiServer) streamHandler(w http.ResponseWriter, r *http.Request) {
 func (as *ApiServer) boardHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	sort := "ASC"
+	for k, _ := range r.URL.Query() {
+		switch k {
+		case "desc":
+			sort = "DESC"
+		}
+	}
+
 	pathTokens := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 	switch len(pathTokens) {
+	// path /boards
 	case 1:
-		boards := as.Storage.GetBoards("4")
+		boards := as.Storage.GetBoards("4", sort)
 		j, _ := json.Marshal(boards)
 		if _, err := fmt.Fprint(w, string(j)); err != nil {
 			log.Print(err)
 		}
+	// path /boards/{board}
 	case 2:
-		threads := as.Storage.GetThreads("4", pathTokens[1])
+		threads := as.Storage.GetThreads("4", pathTokens[1], sort)
 		j, _ := json.Marshal(threads)
 		if _, err := fmt.Fprint(w, string(j)); err != nil {
 			log.Print(err)
+		}
+	// path /boards/{board}/{thread}
+	case 3:
+		if threadNo, e := strconv.Atoi(pathTokens[2]); e == nil {
+			posts := as.Storage.GetPosts("4", pathTokens[1], threadNo, sort)
+			log.Printf("posts: %d", len(posts))
+			j, _ := json.Marshal(posts)
+			if _, err := fmt.Fprint(w, string(j)); err != nil {
+				log.Print(err)
+			}
+		} else {
+			log.Print(e)
 		}
 	}
 }
