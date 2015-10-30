@@ -91,17 +91,9 @@ func donode() {
 }
 
 func doapi() {
-	flag.Parse()
-	fc := api.Flags
-	if fc.EtcdEndpoints == "" {
-		fmt.Printf("ERROR: Invalid etcd nodes (%s) specified. \n\nView the command line options with `%s node -h` \nOr read the docs online at Github.\n", fc.EtcdEndpoints, os.Args[0])
-		fmt.Printf("Flags: \n")
-		flag.PrintDefaults()
-		os.Exit(1)
-	}
 	stop := make(chan bool)
 	ctrlc(stop)
-	apiNode := api.NewApiServer(fc, stop)
+	apiNode := api.NewApiServer(stop)
 	go func() {
 		apiNode.Serve()
 		stop <- true
