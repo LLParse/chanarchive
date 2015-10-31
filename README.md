@@ -15,6 +15,7 @@ The infrastructure contains 3 parts. A node, which is responsible for downloadin
 + [ØMQ 3.2](http://zeromq.org/) (`brew install zeromq` on OS X with brew)
 + [zmq3](https://github.com/pebbe/zmq3) (Go Bindings `go get github.com/pebbe/zmq3`)
 + [go-etcd](https://github.com/coreos/go-etcd) (`go get github.com/coreos/go-etcd/etcd`)
++ [go-bindata](https://github.com/jteeuwen/go-bindata) (Optional: For development only: `go get -u github.com/jteeuwen/go-bindata/... && go-bindata assets/...`)
 
 ### Building
 If you have the appropriate dependecies, simply build with `go build`. Alternatively you can run `./version.sh` to embed the build date and git hash into the build.

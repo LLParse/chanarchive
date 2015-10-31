@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
   etcd "github.com/coreos/etcd/client"
+	"github.com/llparse/streamingchan/asset"
 	"github.com/llparse/streamingchan/fourchan"
 	"github.com/llparse/streamingchan/node"
 	"github.com/llparse/streamingchan/version"
@@ -20,7 +21,15 @@ import (
 	"io"
 )
 
-var templates = template.Must(template.ParseGlob("templates/*"))
+var t *template.Template
+
+func init() {
+	data, err := asset.Asset("asset/templates/thread.html")
+	if err != nil {
+		log.Fatal("couldn't access asset: ", err)
+	}
+	t = template.Must(template.New("thread").Parse(string(data)))
+}
 
 type ApiConfig struct {
 	BindIp         string
@@ -186,7 +195,7 @@ func (as *ApiServer) channelHandler(w http.ResponseWriter, r *http.Request) {
 			log.Printf("serving board %s, thread %d with %d posts", pathTokens[1], threadNo, len(postNos))
 			if (web) {
 				w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		    err := templates.ExecuteTemplate(w, "thread", thread)
+		    err := t.Execute(w, thread)
 		    if err != nil {
 		        http.Error(w, err.Error(), http.StatusInternalServerError)
 		    }
