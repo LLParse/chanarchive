@@ -187,7 +187,7 @@ func (as *ApiServer) channelHandler(w http.ResponseWriter, r *http.Request) {
 		if threadNo, e := strconv.Atoi(pathTokens[2]); e == nil {
 			postNos := as.Storage.GetPostNumbers(pathTokens[0], pathTokens[1], threadNo)
 			posts := as.Storage.GetPosts(pathTokens[0], pathTokens[1], postNos)
-			if posts[0].No == threadNo {
+			if len(posts) > 0 && posts[0].No == threadNo {
 				posts[0].Op = true
 			}
 			thread := &fourchan.Thread{Posts: posts, No: threadNo}
