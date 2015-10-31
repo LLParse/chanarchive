@@ -2,7 +2,6 @@ package api
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
   etcd "github.com/coreos/etcd/client"
 	"github.com/llparse/streamingchan/fourchan"
@@ -10,13 +9,18 @@ import (
 	"github.com/llparse/streamingchan/version"
 	"log"
 	"net/http"
+	"encoding/json"
+	"text/template"
 	"os"
 	"runtime"
 	"strconv"
 	"strings"
 	"time"
 	"flag"
+	"io"
 )
+
+var templates = template.Must(template.ParseGlob("templates/*"))
 
 type ApiConfig struct {
 	BindIp         string
@@ -135,43 +139,63 @@ func (as *ApiServer) commandHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (as *ApiServer) boardHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
+func (as *ApiServer) channelHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 
 	sort := "ASC"
+	web := true
 	for k, _ := range r.URL.Query() {
 		switch k {
 		case "desc":
 			sort = "DESC"
+		case "json":
+			web = false
 		}
 	}
 
 	pathTokens := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 	switch len(pathTokens) {
-	// path /boards
+	// path /{chan}
 	case 1:
-		boards := as.Storage.GetBoards("4", sort)
+		w.Header().Set("Content-Type", "application/json")
+		boards := as.Storage.GetBoards(pathTokens[0], sort)
+		log.Printf("serving %d boards", len(boards))
 		j, _ := json.Marshal(boards)
 		if _, err := fmt.Fprint(w, string(j)); err != nil {
 			log.Print(err)
 		}
-	// path /boards/{board}
+	// path /{chan}/{board}
 	case 2:
-		threads := as.Storage.GetThreads("4", pathTokens[1], sort)
+		w.Header().Set("Content-Type", "application/json")
+		threads := as.Storage.GetThreads(pathTokens[0], pathTokens[1], sort)
+		log.Printf("serving board %s with %d threads", pathTokens[1], len(threads))
 		j, _ := json.Marshal(threads)
 		if _, err := fmt.Fprint(w, string(j)); err != nil {
 			log.Print(err)
 		}
-	// path /boards/{board}/{thread}
+	// path /{chan}/{board}/{thread}
 	case 3:
 		if threadNo, e := strconv.Atoi(pathTokens[2]); e == nil {
-			postNos := as.Storage.GetPostNumbers("4", pathTokens[1], threadNo)
-			posts := as.Storage.GetPosts("4", pathTokens[1], postNos)
-			log.Printf("serving board %s, thread %d, with %d posts", pathTokens[1], threadNo, len(postNos))
-			j, _ := json.Marshal(posts)
-			if _, err := fmt.Fprint(w, string(j)); err != nil {
-				log.Print(err)
+			postNos := as.Storage.GetPostNumbers(pathTokens[0], pathTokens[1], threadNo)
+			posts := as.Storage.GetPosts(pathTokens[0], pathTokens[1], postNos)
+			if posts[0].No == threadNo {
+				posts[0].Op = true
+			}
+			thread := &fourchan.Thread{Posts: posts, No: threadNo}
+
+			log.Printf("serving board %s, thread %d with %d posts", pathTokens[1], threadNo, len(postNos))
+			if (web) {
+				w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		    err := templates.ExecuteTemplate(w, "thread", thread)
+		    if err != nil {
+		        http.Error(w, err.Error(), http.StatusInternalServerError)
+		    }
+			} else {
+				w.Header().Set("Content-Type", "application/json")
+				j, _ := json.Marshal(posts)
+				if _, err := fmt.Fprint(w, string(j)); err != nil {
+					log.Print(err)
+				}
 			}
 		} else {
 			log.Print(e)
@@ -198,6 +222,12 @@ func (as *ApiServer) timeFileHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (as *ApiServer) writeFile(w http.ResponseWriter, f *fourchan.File) {
+	if len(f.Data) == 0 {
+		w.WriteHeader(http.StatusNotFound)
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		io.WriteString(w, "Not Found")
+	}
+
 	switch f.Ext {
 	case ".jpg":
 		w.Header().Set("Content-Type", "image/jpeg")
@@ -216,7 +246,7 @@ func (as *ApiServer) writeFile(w http.ResponseWriter, f *fourchan.File) {
 	w.Header().Set("Content-Length", strconv.Itoa(len(f.Data)))
 	if _, err := bytes.NewReader(f.Data).WriteTo(w); err != nil {
 		log.Print("file write error: ", err)
-	}	
+	}
 }
 
 
@@ -224,7 +254,7 @@ func (as *ApiServer) Serve() error {
 	log.Println("Starting HTTP Server on port", as.Config.HttpPort)
 	http.HandleFunc("/status/",     as.statusHandler)
 	http.HandleFunc("/commands/",   as.commandHandler)
-	http.HandleFunc("/boards/",     as.boardHandler)
+	http.HandleFunc("/4/",          as.channelHandler)
 	http.HandleFunc("/md5/",        as.hashFileHandler)
 	http.HandleFunc("/file/",       as.timeFileHandler)
 	if e := http.ListenAndServe(fmt.Sprintf(":%d", as.Config.HttpPort), nil); e != nil {

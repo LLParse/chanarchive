@@ -155,11 +155,11 @@ func (s *Storage) GetPostNumbers(channel string, board string, threadNo int) []i
 }
 
 func (s *Storage) GetPosts(channel string, board string, postNos []int) []*Post {
-  iter := s.session.Query(`SELECT number, com, tim, filename, ext, fsize, md5 FROM post WHERE chan = ? AND board = ? AND number IN ?`, channel, board, postNos).Iter()
+  iter := s.session.Query(`SELECT number, com, tim, filename, ext, fsize, md5, w, h, tnw, tnh, name, time, now FROM post WHERE chan = ? AND board = ? AND number IN ?`, channel, board, postNos).Iter()
   var posts []*Post
   for {
     post := &Post{}
-    if iter.Scan(&post.No, &post.Com, &post.Tim, &post.Filename, &post.Ext, &post.FSize, &post.Md5) {
+    if iter.Scan(&post.No, &post.Com, &post.Tim, &post.Filename, &post.Ext, &post.FSize, &post.Md5, &post.W, &post.H, &post.TnW, &post.TnH, &post.Name, &post.Time, &post.Now) {
       posts = append(posts, post)
     } else {
       break

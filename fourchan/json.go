@@ -1,5 +1,7 @@
 package fourchan
 
+import "fmt"
+
 type File struct {
 	Md5   string `json:"md5"`
 	Ext   string `json:"ext"`
@@ -47,10 +49,25 @@ type Post struct {
 	ImageLimit     uint8       `json:"imagelimit,omitempty"`
 	CapcodeReplies interface{} `json:"capcode_replies,omitempty"`
 	LastModified   int         `json:"last_modified,omitempty"`
+	Op             bool        `json:"op,omitempty"`
+}
+
+func (p *Post) FSizePretty() string {
+	b := p.FSize
+	if b < 1024 {
+		return fmt.Sprintf("%d B", b)
+	}
+	kb := b / 1024
+	if kb < 1024 {
+		return fmt.Sprintf("%d KB", kb)
+	}
+	mb := float64(kb) / 1024.
+	return fmt.Sprintf("%.2f MB", mb)
 }
 
 type Thread struct {
-	Posts []Post `json:"posts"`
+	No    int     `json:"no"`
+	Posts []*Post `json:"posts"`
 }
 
 type Board struct {

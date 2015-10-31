@@ -61,7 +61,7 @@ type Node struct {
 	ThreadPub        chan *fourchan.ThreadInfo
 	ThreadSubSocket  *zmq4.Socket
 	PostPubSocket    *zmq4.Socket
-	PostPub          chan fourchan.Post
+	PostPub          chan *fourchan.Post
 	FilePub          chan *fourchan.File
 	BoardStop        []chan bool
 	Shutdown         bool
@@ -278,7 +278,7 @@ func (n *Node) Bootstrap() error {
 		log.Print("Finished connecting, watching nodes...")
 
 		n.ThreadPub = make(chan *fourchan.ThreadInfo)
-		n.PostPub = make(chan fourchan.Post)
+		n.PostPub = make(chan *fourchan.Post)
 		n.FilePub = make(chan *fourchan.File)
 
 		go n.addNodeWatcher()
@@ -392,7 +392,7 @@ func (n *Node) processThread(threadInfo *fourchan.ThreadInfo) {
 			z := int64(0)
 			var postNos []int
 			for _, post := range thread.Posts {
-				if post.Time > threadInfo.MinPost && post.Time <= threadInfo.LastModified {
+				if post.Time >= threadInfo.MinPost && post.Time <= threadInfo.LastModified {
 					if n.PostPub == nil {
 						return
 					}
@@ -412,7 +412,7 @@ func (n *Node) processThread(threadInfo *fourchan.ThreadInfo) {
 
 func (n *Node) postPublisher() {
 	for post := range n.PostPub {
-		n.Storage.PersistPost(&post)
+		n.Storage.PersistPost(post)
 		if post.Md5 != "" && post.Ext != "" && !n.Closed {
 			file := &fourchan.File{
 				Board: post.Board,
