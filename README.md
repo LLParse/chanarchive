@@ -13,7 +13,7 @@ The infrastructure contains 3 parts. A node, which is responsible for downloadin
 + [Go 1.1](http://golang.org)
 + [etcd](github.com/coreos/etcd)
 + [go-etcd](https://github.com/coreos/go-etcd) (`go get github.com/coreos/go-etcd/etcd`)
-+ [go-bindata](https://github.com/jteeuwen/go-bindata) (Optional: For development only: `go get -u github.com/jteeuwen/go-bindata/... && go-bindata assets/...`)
++ [go-bindata](https://github.com/jteeuwen/go-bindata) (Optional: For development only: `go get -u github.com/jteeuwen/go-bindata/... && go-bindata -o ./asset/bindata.go -pkg asset asset/...`)
 
 ### Building
 If you have the appropriate dependecies, simply build with `go build`. Alternatively you can run `./version.sh` to embed the build date and git hash into the build.

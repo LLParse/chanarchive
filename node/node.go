@@ -90,6 +90,10 @@ func randNodeId() string {
 
 func (n *Node) Close() {
 	n.Closed = true
+	close(n.CBoard)
+	close(n.CThread)
+	close(n.CPost)
+	close(n.CFile)
 	n.Storage.Close()
 }
 
@@ -245,6 +249,48 @@ func (n *Node) topologyWatcher() {
 	}
 }
 
+const (
+	boardLock = "/%s/board-lock/%s"
+	boardLM   = "/%s/board-lm/%s"
+)
+
+func (n *Node) acquireBoardLock(board string) error {
+	path := fmt.Sprintf(boardLock, n.Config.ClusterName, board)
+	if _, err := n.Keys.Get(context.Background(), path, nil);
+		err != nil && (err.(etcd.Error)).Code == etcd.ErrorCodeKeyNotFound {
+		_, err = n.Keys.Set(context.Background(), path, n.NodeId, &etcd.SetOptions{TTL: 5*time.Second})
+		return err
+	} else {
+		return errors.New(fmt.Sprintf("lock already exists on board %s", board))
+	}
+}
+
+func (n *Node) releaseBoardLock(board string) {
+	path := fmt.Sprintf(boardLock, n.Config.ClusterName, board)
+	if _, err := n.Keys.Delete(context.Background(), path, nil); err != nil {
+		log.Printf(fmt.Sprintf("couldn't release lock on board %s", board))
+	}
+}
+
+func (n *Node) getBoardLM(board string) int {
+	lm := 0
+	path := fmt.Sprintf(boardLM, n.Config.ClusterName, board)
+	if resp, err := n.Keys.Get(context.Background(), path, nil);
+		err != nil && (err.(etcd.Error)).Code != 100 {
+		log.Print("error getting lastModified: ", err)
+	} else if lm, err = strconv.Atoi(resp.Node.Value); err != nil {
+		log.Print("error parsing lastModified: ", err)
+	}
+	return lm
+}
+
+func (n *Node) setBoardLM(board string, lastModified int) {
+	path := fmt.Sprintf(boardLM, n.Config.ClusterName, board)
+	if _, err := n.Keys.Set(context.Background(), path, strconv.Itoa(lastModified), nil); err != nil {
+		log.Printf("Error setting lastModified for board %s", board)
+	}
+}
+
 func (n *Node) boardProcessor(boards chan *fourchan.Board, threads chan<- *fourchan.ThreadInfo) {
 	for board := range boards {
 		// eliminate drift by publishing to channel immediately
@@ -286,51 +332,7 @@ func (n *Node) boardProcessor(boards chan *fourchan.Board, threads chan<- *fourc
 		} else if statusCode != 304 {
 			log.Print("Error downloading board ", board.Board, " ", e)
 		}
-	n.releaseBoardLock(board.Board)
-	}
-}
-
-const (
-	boardLock = "/%s/board-lock/%s"
-	boardLM   = "/%s/board-lm/%s"
-)
-
-func (n *Node) acquireBoardLock(board string) error {
-	path := fmt.Sprintf(boardLock, n.Config.ClusterName, board)
-	if _, err := n.Keys.Get(context.Background(), path, nil);
-		err != nil && (err.(etcd.Error)).Code == etcd.ErrorCodeKeyNotFound {
-		_, err = n.Keys.Set(context.Background(), path, n.NodeId, nil)
-		return err
-	} else {
-		return errors.New(fmt.Sprintf("lock already exists on board %s", board))
-	}
-}
-
-func (n *Node) releaseBoardLock(board string) {
-	path := fmt.Sprintf(boardLock, n.Config.ClusterName, board)
-	if _, err := n.Keys.Delete(context.Background(), path, nil); err != nil {
-		log.Printf(fmt.Sprintf("couldn't release lock on board %s", board))
-	}
-}
-
-func (n *Node) getBoardLM(board string) int {
-	path := fmt.Sprintf(boardLM, n.Config.ClusterName, board)
-	if resp, err := n.Keys.Get(context.Background(), path, nil); err != nil {
-		log.Printf("error getting lastModified for board %s", board)
-	} else {
-		if val, e := strconv.Atoi(resp.Node.Value); e != nil {
-			log.Printf("error parsing lastModified for board %s: %v", board, e)
-		} else {
-			return val
-		}
-	}
-	return 0
-}
-
-func (n *Node) setBoardLM(board string, lastModified int) {
-	path := fmt.Sprintf(boardLM, n.Config.ClusterName, board)
-	if _, err := n.Keys.Set(context.Background(), path, strconv.Itoa(lastModified), nil); err != nil {
-		log.Printf("Error setting lastModified for board %s", board)
+		n.releaseBoardLock(board.Board)
 	}
 }
 
@@ -374,7 +376,7 @@ func (n *Node) postProcessor(posts <-chan *fourchan.Post, files chan<- *fourchan
 
 func (n *Node) fileProcessor(files <-chan *fourchan.File) {
 	for file := range files {
-		//continue
+		continue
 		//log.Printf("processing /%s/file/%d", file.Board, file.Tim)
 		if !n.Storage.FileExists(file) {
 			data, err := fourchan.DownloadFile(file.Board, file.Tim, file.Ext)
@@ -389,68 +391,6 @@ func (n *Node) fileProcessor(files <-chan *fourchan.File) {
 		}
 	}
 }
-
-/*func (n *Node) divideBoards() {
-	n.DivideMutex.Lock()
-	defer n.DivideMutex.Unlock()
-	if n.BoardStop != nil {
-		for _, c := range n.BoardStop {
-			c <- true
-		}
-	}
-	resp, err := n.Keys.Get(context.Background(), n.Config.ClusterName + "/nodes", nil)
-	if err == nil {
-		var nodes []NodeInfo
-		result := resp.Node
-		if e := json.Unmarshal([]byte(result.Value), &nodes); e != nil {
-			log.Print("Failed to unmarshhal " + n.Config.ClusterName + "/nodes")
-			return
-		}
-		sort.Sort(NodeInfoList(nodes))
-		nodeIds := make([]string, 0, 16)
-		for idx, node := range nodes {
-			nodes[idx].NodeIndex = idx + 1
-			nodeIds = append(nodeIds, node.NodeId)
-		}
-		newNodeData, _ := json.Marshal(nodes)
-		if string(newNodeData) != result.Value {
-			_, err := n.Keys.Set(context.Background(), n.Config.ClusterName+"/nodes", string(newNodeData), 
-				&etcd.SetOptions{PrevValue: result.Value})
-			if err != nil {
-				log.Print("Failed to update /nodes data")
-			}
-			return
-		}
-		var myNode *NodeInfo
-		for idx, node := range nodes {
-			if node.NodeId == n.NodeId {
-				myNode = &nodes[idx]
-			}
-		}
-		if myNode == nil {
-			if n.Shutdown == false {
-				log.Print("Oh dear, I can't find myself in the config, I may be dead.")
-				go n.CleanShutdown()
-			}
-			return
-		}
-		n.BoardStop = make([]chan bool, 0, 64)
-		n.OwnedBoards = make([]string, 0, 64)
-		n.LastNodeIdx = myNode.NodeIndex
-		n.NodeCount = len(nodes)
-		for idx, board := range n.Boards.Boards {
-			if len(nodes) != 0 && (idx%len(nodes))+1 == myNode.NodeIndex {
-				bc := make(chan bool)
-				n.BoardStop = append(n.BoardStop, bc)
-				n.OwnedBoards = append(n.OwnedBoards, board.Board)
-				go n.ProcessBoard(nodeIds, board.Board, bc)
-			}
-		}
-	} else {
-		log.Print("Failed to get node configuration.")
-		return
-	}
-}*/
 
 func (n *Node) CleanShutdown() {
 	if n.Shutdown {

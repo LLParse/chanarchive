@@ -163,11 +163,13 @@ func (as *ApiServer) channelHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	pathTokens := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	// todo: cache this?
+	boards := as.Storage.GetBoards(pathTokens[0], sort)
+
 	switch len(pathTokens) {
 	// path /{chan}
 	case 1:
 		w.Header().Set("Content-Type", "application/json")
-		boards := as.Storage.GetBoards(pathTokens[0], sort)
 		log.Printf("serving %d boards", len(boards))
 		j, _ := json.Marshal(boards)
 		if _, err := fmt.Fprint(w, string(j)); err != nil {
@@ -190,7 +192,7 @@ func (as *ApiServer) channelHandler(w http.ResponseWriter, r *http.Request) {
 			if len(posts) > 0 && posts[0].No == threadNo {
 				posts[0].Op = true
 			}
-			thread := &fourchan.Thread{Posts: posts, No: threadNo}
+			thread := &fourchan.ThreadView{Chan: "4", Boards: boards, Board: pathTokens[0], No: threadNo, Posts: posts}
 
 			log.Printf("serving board %s, thread %d with %d posts", pathTokens[1], threadNo, len(postNos))
 			if (web) {

@@ -65,6 +65,14 @@ func (p *Post) FSizePretty() string {
 	return fmt.Sprintf("%.2f MB", mb)
 }
 
+type ThreadView struct {
+	Chan   string
+	Boards []*Board
+	Board  string
+	No     int
+	Posts  []*Post
+}
+
 type Thread struct {
 	No    int     `json:"no"`
 	Posts []*Post `json:"posts"`
