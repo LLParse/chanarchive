@@ -136,7 +136,7 @@ func NewNode(stop chan<- bool) *Node {
 	if err != nil {
 		log.Fatal("Failed to connected to etcd: ", err)
 	}
-	n.Keys  = etcd.NewKeysAPI(c)
+	n.Keys = etcd.NewKeysAPI(c)
 	n.Shutdown = false
 	n.Closed = false
 	return n
@@ -255,6 +255,9 @@ const (
 )
 
 func (n *Node) acquireBoardLock(board string) error {
+	t := time.NewTicker(3*time.Second)
+	defer t.Stop()
+
 	path := fmt.Sprintf(boardLock, n.Config.ClusterName, board)
 	if _, err := n.Keys.Get(context.Background(), path, nil);
 		err != nil && (err.(etcd.Error)).Code == etcd.ErrorCodeKeyNotFound {
@@ -376,7 +379,6 @@ func (n *Node) postProcessor(posts <-chan *fourchan.Post, files chan<- *fourchan
 
 func (n *Node) fileProcessor(files <-chan *fourchan.File) {
 	for file := range files {
-		continue
 		//log.Printf("processing /%s/file/%d", file.Board, file.Tim)
 		if !n.Storage.FileExists(file) {
 			data, err := fourchan.DownloadFile(file.Board, file.Tim, file.Ext)
