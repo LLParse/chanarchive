@@ -246,6 +246,8 @@ func (as *ApiServer) writeFile(w http.ResponseWriter, f *fourchan.File) {
 		w.Header().Set("Content-Type", "image/png")
 	case ".gif":
 		w.Header().Set("Content-Type", "image/gif")
+	case ".swf":
+		w.Header().Set("Content-Type", "application/x-shockwave-flash")
 	case ".webm":
 		w.Header().Set("Content-Type", "video/webm")
 	default:
