@@ -16,7 +16,7 @@ func NewStorage(keyspace string, hosts ...string) *Storage {
   storage.config = gocql.NewCluster(hosts...)
   storage.config.Keyspace = keyspace
   storage.config.Consistency = gocql.Quorum
-  storage.config.Timeout = 1000 * time.Millisecond
+  storage.config.Timeout = 3000 * time.Millisecond
   storage.session = storage.NewSession()
   return storage
 }
