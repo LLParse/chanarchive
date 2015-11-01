@@ -5,7 +5,6 @@ import (
 	crand "crypto/rand"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
   "github.com/coreos/etcd/Godeps/_workspace/src/golang.org/x/net/context"
   etcd "github.com/coreos/etcd/client"
 	"github.com/llparse/streamingchan/fourchan"
@@ -200,35 +199,31 @@ func (n *Node) Bootstrap() error {
 	}
 
 	go n.statusServer()
-
-	log.Print("Starting processor routines...")
-	n.CBoard = make(chan *fourchan.Board, len(n.Boards.Boards) + 1)
+	n.CBoard = make(chan *fourchan.Board, len(n.Boards.Boards) + 2)
 	n.CThread = make(chan *fourchan.ThreadInfo, 64)
 	n.CPost = make(chan *fourchan.Post, 128)
-	n.CFile = make(chan *fourchan.File, 64)
+	n.CFile = make(chan *fourchan.File, 24)
 
 	for _, board := range n.Boards.Boards {
 		n.Storage.PersistBoard(board)
 		n.CBoard <- board
 	}
-	
 	log.Print("Finished bootstrapping node.")
 
-	go n.boardProcessor(n.CBoard, n.CThread)
-	for i := 0; i < 32; i++ {
-		go n.threadProcessor(n.CThread, n.CPost)
-	}
-	for i := 0; i < 32; i++ {
-		go n.postProcessor(n.CPost, n.CFile)
+	log.Print("Starting processor routines...")
+	for i := 0; i < 2; i++ {
+		go n.boardProcessor(n.CBoard, n.CThread)
 	}
 	for i := 0; i < 8; i++ {
+		go n.threadProcessor(n.CThread, n.CPost)
+	}
+	for i := 0; i < 16; i++ {
+		go n.postProcessor(n.CPost, n.CFile)
+	}
+	for i := 0; i < 3; i++ {
 		go n.fileProcessor(n.CFile)
 	}
-
 	return nil
-
-	log.Print("Failed to bootstrap node.")
-	return errors.New("Failed to bootstrap node.")
 }
 
 func (n *Node) topologyWatcher() {
@@ -260,13 +255,12 @@ func (n *Node) boardProcessor(boards chan *fourchan.Board, threads chan<- *fourc
 			newLastModified := board.LM
 			for _, page := range t {
 				for _, thread := range page.Threads {
-					//if thread.LastModified > board.LM {
+					if thread.LastModified > board.LM {
 						thread.Board = page.Board
 						thread.MinPost = board.LM
 						thread.OwnerId = n.NodeId
 						threads <- thread
-						//log.Printf("wrote thread %v", thread)
-					//}
+					}
 					if thread.LastModified > newLastModified {
 						newLastModified = thread.LastModified
 					}
@@ -323,6 +317,7 @@ func (n *Node) postProcessor(posts <-chan *fourchan.Post, files chan<- *fourchan
 
 func (n *Node) fileProcessor(files <-chan *fourchan.File) {
 	for file := range files {
+		continue
 		//log.Printf("processing /%s/file/%d", file.Board, file.Tim)
 		if !n.Storage.FileExists(file) {
 			data, err := fourchan.DownloadFile(file.Board, file.Tim, file.Ext)
