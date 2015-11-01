@@ -250,13 +250,11 @@ func (n *Node) topologyWatcher() {
 }
 
 func (n *Node) acquireBoardLock(board string) error {
-	t := time.NewTicker(3*time.Second)
-	defer t.Stop()
-
 	path := fmt.Sprintf("/%s/board-lock/%s", n.Config.ClusterName, board)
 	if _, err := n.Keys.Get(context.Background(), path, nil);
 		err != nil && (err.(etcd.Error)).Code == etcd.ErrorCodeKeyNotFound {
-		_, err = n.Keys.Set(context.Background(), path, n.NodeId, &etcd.SetOptions{TTL: 5*time.Second})
+		// &etcd.SetOptions{TTL: 5*time.Second}
+		_, err = n.Keys.Set(context.Background(), path, n.NodeId, nil)
 		return err
 	} else {
 		return errors.New(fmt.Sprintf("lock already exists on board %s", board))
