@@ -317,7 +317,6 @@ func (n *Node) postProcessor(posts <-chan *fourchan.Post, files chan<- *fourchan
 
 func (n *Node) fileProcessor(files <-chan *fourchan.File) {
 	for file := range files {
-		continue
 		//log.Printf("processing /%s/file/%d", file.Board, file.Tim)
 		if !n.Storage.FileExists(file) {
 			data, err := fourchan.DownloadFile(file.Board, file.Tim, file.Ext)
