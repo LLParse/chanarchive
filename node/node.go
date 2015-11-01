@@ -249,16 +249,11 @@ func (n *Node) topologyWatcher() {
 	}
 }
 
-const (
-	boardLock = "/%s/board-lock/%s"
-	boardLM   = "/%s/board-lm/%s"
-)
-
 func (n *Node) acquireBoardLock(board string) error {
 	t := time.NewTicker(3*time.Second)
 	defer t.Stop()
 
-	path := fmt.Sprintf(boardLock, n.Config.ClusterName, board)
+	path := fmt.Sprintf("/%s/board-lock/%s", n.Config.ClusterName, board)
 	if _, err := n.Keys.Get(context.Background(), path, nil);
 		err != nil && (err.(etcd.Error)).Code == etcd.ErrorCodeKeyNotFound {
 		_, err = n.Keys.Set(context.Background(), path, n.NodeId, &etcd.SetOptions{TTL: 5*time.Second})
@@ -269,7 +264,7 @@ func (n *Node) acquireBoardLock(board string) error {
 }
 
 func (n *Node) releaseBoardLock(board string) {
-	path := fmt.Sprintf(boardLock, n.Config.ClusterName, board)
+	path := fmt.Sprintf("/%s/board-lock/%s", n.Config.ClusterName, board)
 	if _, err := n.Keys.Delete(context.Background(), path, nil); err != nil {
 		log.Printf(fmt.Sprintf("couldn't release lock on board %s", board))
 	}
@@ -277,7 +272,7 @@ func (n *Node) releaseBoardLock(board string) {
 
 func (n *Node) getBoardLM(board string) int {
 	lm := 0
-	path := fmt.Sprintf(boardLM, n.Config.ClusterName, board)
+	path := fmt.Sprintf("/%s/board-lm/%s", n.Config.ClusterName, board)
 	if resp, err := n.Keys.Get(context.Background(), path, nil);
 		err != nil && (err.(etcd.Error)).Code != 100 {
 		log.Print("error getting lastModified: ", err)
@@ -288,7 +283,7 @@ func (n *Node) getBoardLM(board string) int {
 }
 
 func (n *Node) setBoardLM(board string, lastModified int) {
-	path := fmt.Sprintf(boardLM, n.Config.ClusterName, board)
+	path := fmt.Sprintf("/%s/board-lm/%s", n.Config.ClusterName, board)
 	if _, err := n.Keys.Set(context.Background(), path, strconv.Itoa(lastModified), nil); err != nil {
 		log.Printf("Error setting lastModified for board %s", board)
 	}
@@ -379,6 +374,7 @@ func (n *Node) postProcessor(posts <-chan *fourchan.Post, files chan<- *fourchan
 
 func (n *Node) fileProcessor(files <-chan *fourchan.File) {
 	for file := range files {
+		continue
 		//log.Printf("processing /%s/file/%d", file.Board, file.Tim)
 		if !n.Storage.FileExists(file) {
 			data, err := fourchan.DownloadFile(file.Board, file.Tim, file.Ext)
