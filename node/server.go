@@ -12,54 +12,43 @@ import (
 	"time"
 )
 
-const (
-	PORT_NUMBER = 3333
-)
-
-type NodeServer struct {
-	Node    *Node
-	CmdLine string
-	stop    chan<- bool
-}
-
-func (ns *NodeServer) statusHandler(w http.ResponseWriter, r *http.Request) {
+func (n *Node) statusHandler(w http.ResponseWriter, r *http.Request) {
 	var memStats runtime.MemStats
 	runtime.ReadMemStats(&memStats)
 	stats := map[string]interface{}{
 		"board_requests": map[string]interface{}{
-			"5min": ns.Node.Stats.Aggregate(METRIC_BOARD_REQUESTS, TIME_5SEC, 60),
-			"1hr":  ns.Node.Stats.Aggregate(METRIC_BOARD_REQUESTS, TIME_1MIN, 60),
-			"1d":   ns.Node.Stats.Aggregate(METRIC_BOARD_REQUESTS, TIME_1HOUR, 24),
+			"5min": n.Stats.Aggregate(METRIC_BOARD_REQUESTS, TIME_5SEC, 60),
+			"1hr":  n.Stats.Aggregate(METRIC_BOARD_REQUESTS, TIME_1MIN, 60),
+			"1d":   n.Stats.Aggregate(METRIC_BOARD_REQUESTS, TIME_1HOUR, 24),
 		},
 		"threads_processed": map[string]interface{}{
-			"5min": ns.Node.Stats.Aggregate(METRIC_THREADS, TIME_5SEC, 60),
-			"1hr":  ns.Node.Stats.Aggregate(METRIC_THREADS, TIME_1MIN, 60),
-			"1d":   ns.Node.Stats.Aggregate(METRIC_THREADS, TIME_1HOUR, 24),
+			"5min": n.Stats.Aggregate(METRIC_THREADS, TIME_5SEC, 60),
+			"1hr":  n.Stats.Aggregate(METRIC_THREADS, TIME_1MIN, 60),
+			"1d":   n.Stats.Aggregate(METRIC_THREADS, TIME_1HOUR, 24),
 		},
 		"posts_published": map[string]interface{}{
-			"5min": ns.Node.Stats.Aggregate(METRIC_POSTS, TIME_5SEC, 60),
-			"1hr":  ns.Node.Stats.Aggregate(METRIC_POSTS, TIME_1MIN, 60),
-			"1d":   ns.Node.Stats.Aggregate(METRIC_POSTS, TIME_1HOUR, 24),
+			"5min": n.Stats.Aggregate(METRIC_POSTS, TIME_5SEC, 60),
+			"1hr":  n.Stats.Aggregate(METRIC_POSTS, TIME_1MIN, 60),
+			"1d":   n.Stats.Aggregate(METRIC_POSTS, TIME_1HOUR, 24),
 		},
 	}
 	data := map[string]interface{}{
 		"ok":                1,
-		"boards":            ns.Node.OwnedBoards,
+		"boards":            n.OwnedBoards,
 		"revision":          version.GitHash,
 		"build_date":        version.BuildDate,
-		"cmd_line":          ns.CmdLine,
-		"runtime":           time.Since(ns.Node.Stats.StartTime),
+		"cmd_line":          n.Config.CmdLine,
+		"runtime":           time.Since(n.Stats.StartTime),
 		"memory":            memStats.Alloc,
 		"processId":         os.Getpid(),
-		"hostname":          ns.Node.Config.Hostname,
-		"board_requests":    ns.Node.Stats.Lifetime.BoardRequests,
-		"threads_processed": ns.Node.Stats.Lifetime.Threads,
-		"posts_published":   ns.Node.Stats.Lifetime.Posts,
+		"hostname":          n.Config.Hostname,
+		"board_requests":    n.Stats.Lifetime.BoardRequests,
+		"threads_processed": n.Stats.Lifetime.Threads,
+		"posts_published":   n.Stats.Lifetime.Posts,
 		"stats":             stats,
-		"nodeidx":           ns.Node.LastNodeIdx,
-		"nodecount":         ns.Node.NodeCount,
+		"nodeidx":           n.LastNodeIdx,
+		"nodecount":         n.NodeCount,
 	}
-	//log.Print("Serving ", r.URL.Path)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -70,11 +59,11 @@ func (ns *NodeServer) statusHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (ns *NodeServer) commandHandler(w http.ResponseWriter, r *http.Request) {
+func (n *Node) commandHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	if strings.Contains(r.URL.Path, "/commands/stop") {
-		go func() { ns.stop <- true }()
+		go func() { n.stop <- true }()
 		p := map[string]interface{}{
 			"ok":      1,
 			"message": "Stop command sent, check logs",
@@ -93,17 +82,11 @@ func (ns *NodeServer) commandHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func NewNodeServer(node *Node, stop chan<- bool) *NodeServer {
-	ns := new(NodeServer)
-	ns.Node = node
-	ns.CmdLine = strings.Join(os.Args, " ")
-	ns.stop = stop
-	return ns
-}
-
-func (ns *NodeServer) Serve(portNumber int) {
-	log.Println("Starting HTTP status server on port", portNumber)
-	http.HandleFunc("/status/", ns.statusHandler)
-	http.HandleFunc("/commands/", ns.commandHandler)
-	http.ListenAndServe(fmt.Sprintf(":%d", portNumber), nil)
+func (n *Node) statusServer() {
+	if n.Config.HttpPort != 0 {
+		log.Println("Starting HTTP status server on port", n.Config.HttpPort)
+		http.HandleFunc("/status/", n.statusHandler)
+		http.HandleFunc("/commands/", n.commandHandler)
+		http.ListenAndServe(fmt.Sprintf(":%d", n.Config.HttpPort), nil)
+	}
 }

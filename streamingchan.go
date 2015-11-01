@@ -1,7 +1,6 @@
 package main
 
 import (
-	"flag"
 	"fmt"
 	"github.com/llparse/streamingchan/api"
 	"github.com/llparse/streamingchan/node"
@@ -63,28 +62,12 @@ func ctrlc(stop chan<- bool) {
 }
 
 func donode() {
-	flag.Parse()
-	fc := node.Flags
-	if fc.EtcdEndpoints == "" {
-		fmt.Printf("ERROR: Invalid etcd nodes (%s) specified. \n\nView the command line options with `%s node -h` \nOr read the docs online at Github.\n", fc.EtcdEndpoints, os.Args[0])
-		fmt.Printf("Flags: \n")
-		flag.PrintDefaults()
-		os.Exit(1)
-	}
-
-	serverNode := node.NewNode(fc)
 	stop := make(chan bool)
 	ctrlc(stop)
-	e := serverNode.Bootstrap()
-	if e != nil {
+	serverNode := node.NewNode(stop)
+	if e := serverNode.Bootstrap(); e != nil {
 		os.Exit(1)
 	}
-
-	if fc.HttpPort != 0 {
-		ns := node.NewNodeServer(serverNode, stop)
-		go ns.Serve(fc.HttpPort)
-	}
-
 	<-stop
 	serverNode.CleanShutdown()
 	os.Exit(0)

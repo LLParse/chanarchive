@@ -23,9 +23,9 @@ func EasyGet(url string, lastModified time.Time) ([]byte, string, int, string, e
 
 	req, _ := http.NewRequest("GET", url, nil)
 	req.Header.Add("User-Agent", USER_AGENT)
-	if !lastModified.IsZero() {
+	/*if !lastModified.IsZero() {
 		req.Header.Add("If-Modified-Since", lastModified.Format(http.TimeFormat))
-	}
+	}*/
 
 	resp, net_error := DefaultClient.Do(req)
 
@@ -58,7 +58,7 @@ func DownloadBoards(only []string, exclude []string) (*Boards, error) {
 				return b, nil
 			}
 			filteredBoards := new(Boards)
-			filteredBoards.Boards = make([]Board, 0, 64)
+			filteredBoards.Boards = make([]*Board, 0, 64)
 			sort.Strings(only)
 			sort.Strings(exclude)
 			for _, board := range b.Boards {
@@ -84,9 +84,9 @@ func DownloadBoards(only []string, exclude []string) (*Boards, error) {
 	}
 }
 
-func DownloadBoard(board string, lastModified time.Time) ([]Threads, int, string, error) {
+func DownloadBoard(board string, lastModified time.Time) ([]*ThreadPage, int, string, error) {
 	if data, _, statusCode, lastModified, err := EasyGet("http://api.4chan.org/"+board+"/threads.json", lastModified); err == nil {
-		var t []Threads
+		var t []*ThreadPage
 		if err := json.Unmarshal(data, &t); err == nil {
 			for idx, _ := range t {
 				t[idx].Board = board
@@ -101,9 +101,11 @@ func DownloadBoard(board string, lastModified time.Time) ([]Threads, int, string
 }
 
 func DownloadThread(board string, thread int) (Thread, error) {
-	if data, _, _, _, err := EasyGet(fmt.Sprintf("http://api.4chan.org/%s/res/%d.json", board, thread), time.Time{}); err == nil {
+	url := fmt.Sprintf("http://api.4chan.org/%s/res/%d.json", board, thread)
+	if data, _, _, _, err := EasyGet(url, time.Time{}); err == nil {
 		var t Thread
 		if err := json.Unmarshal(data, &t); err == nil {
+			t.No = thread
 			for idx, _ := range t.Posts {
 				t.Posts[idx].Board = board
 			}

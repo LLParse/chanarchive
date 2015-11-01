@@ -258,7 +258,6 @@ func (as *ApiServer) writeFile(w http.ResponseWriter, f *fourchan.File) {
 	}
 }
 
-
 func (as *ApiServer) Serve() error {
 	log.Println("Starting HTTP Server on port", as.Config.HttpPort)
 	http.HandleFunc("/status/",     as.statusHandler)

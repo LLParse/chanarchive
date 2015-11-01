@@ -77,6 +77,7 @@ type Board struct {
 	WsBoard uint8    `json:"ws_board"`
 	PerPage int      `json:"per_page"`
 	Pages   int      `json:"pages"`
+	LM      int
 }
 
 type ThreadInfo struct {
@@ -87,12 +88,12 @@ type ThreadInfo struct {
 	OwnerId      string `json:"owner_hint,omitempty"`
 }
 
-type Threads struct {
-	Board   string       `json:"board"`
-	Page    int          `json:"page"`
-	Threads []ThreadInfo `json:"threads"`
+type ThreadPage struct {
+	Board   string        `json:"board"`
+	Page    int           `json:"page"`
+	Threads []*ThreadInfo `json:"threads"`
 }
 
 type Boards struct {
-	Boards []Board `json:"boards"`
+	Boards []*Board `json:"boards"`
 }
