@@ -13,11 +13,13 @@ import (
 	"os"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 	"flag"
 	"net/http"
+	"fmt"
 )
 
 type Node struct {
@@ -247,6 +249,9 @@ func (n *Node) boardProcessor(boards chan *fourchan.Board, threads chan<- *fourc
 		// eliminate drift by publishing to channel immediately
 		boards <- board
 		log.Printf("processing /%s/", board.Board)
+		if board.LM == 0 {
+			board.LM = n.getBoardLM(board.Board)
+		}
 		var lastModifiedHeader time.Time
 		if t, statusCode, lastModifiedStr, e := fourchan.DownloadBoard(board.Board, lastModifiedHeader); e == nil {
 			n.Stats.Incr(METRIC_BOARD_REQUESTS, 1)
@@ -267,13 +272,36 @@ func (n *Node) boardProcessor(boards chan *fourchan.Board, threads chan<- *fourc
 				}
 			}
 			if board.LM == newLastModified {
+				time.Sleep(500 * time.Millisecond)
 				//log.Printf("board %s didn't change", board.Board)
 			} else {
 				board.LM = newLastModified
+				n.setBoardLM(board.Board, board.LM)
 			}
 		} else if statusCode != 304 {
 			log.Print("Error downloading board ", board.Board, " ", e)
 		}
+	}
+}
+
+func (n *Node) getBoardLM(board string) int {
+	path := fmt.Sprintf("/%s/board-lm/%s", n.Config.ClusterName, board)
+	if resp, err := n.Keys.Get(context.Background(), path, nil); err != nil {
+		log.Printf("error getting lastModified for board %s", board)
+	} else {
+		if val, e := strconv.Atoi(resp.Node.Value); e != nil {
+			log.Printf("error parsing lastModified for board %s: %v", board, e)
+		} else {
+			return val
+		}
+	}
+	return 0
+}
+
+func (n *Node) setBoardLM(board string, lastModified int) {
+	path := fmt.Sprintf("/%s/board-lm/%s", n.Config.ClusterName, board)
+	if _, err := n.Keys.Set(context.Background(), path, strconv.Itoa(lastModified), nil); err != nil {
+		log.Printf("Error setting lastModified for board %s", board)
 	}
 }
 
