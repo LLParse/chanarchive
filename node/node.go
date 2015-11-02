@@ -275,6 +275,9 @@ func (n *Node) getBoardLM(board string) int {
 		log.Print("error getting lastModified: ", err)
 		return 0
 	}
+	if resp == nil {
+		return 0
+	}
 	lm, err := strconv.Atoi(resp.Node.Value)
 	if err != nil {
 		log.Print("error parsing lastModified: ", err)
@@ -375,7 +378,6 @@ func (n *Node) postProcessor(posts <-chan *fourchan.Post, files chan<- *fourchan
 
 func (n *Node) fileProcessor(files <-chan *fourchan.File) {
 	for file := range files {
-		continue
 		//log.Printf("processing /%s/file/%d", file.Board, file.Tim)
 		if !n.Storage.FileExists(file) {
 			data, err := fourchan.DownloadFile(file.Board, file.Tim, file.Ext)
