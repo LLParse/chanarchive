@@ -306,7 +306,7 @@ func (n *Node) setBoardLM(board string, lastModified int) {
 }
 
 func (n *Node) boardProcessor(boards chan *fourchan.Board, threads chan<- *fourchan.ThreadInfo) {
-	lockTTL := 5 * time.Second
+	lockTTL := 10 * time.Second
 	for board := range boards {
 		// eliminate drift by publishing to channel immediately
 		boards <- board
