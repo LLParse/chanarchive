@@ -30,6 +30,7 @@ type Node struct {
 	Storage          *fourchan.Storage
 	Config           *NodeConfig
 	Keys             etcd.KeysAPI
+	LMDelay          time.Duration
 	CBoard           chan *fourchan.Board
 	CThread          chan *fourchan.ThreadInfo
 	CPost            chan *fourchan.Post
@@ -64,6 +65,7 @@ type NodeConfig struct {
 	ClusterName   string
 	ThreadWorkers int
 	HttpPort      int
+	NoFiles       bool
 }
 
 
@@ -111,6 +113,7 @@ func parseFlags() *NodeConfig {
 	flag.StringVar(&(c.CassKeyspace),  "keyspace",      "chan",                  "Node : Cassandra keyspace")
 	flag.StringVar(&(c.ClusterName),   "clustername",   "streamingchan",         "Node : Cluster name")
 	flag.IntVar(   &(c.HttpPort),      "httpport",      3333,                    "Node : Host for HTTP Server for serving stats. 0 for disabled.")
+	flag.BoolVar(  &(c.NoFiles),       "nofiles",       false,                   "Node : Don't download files")
 	flag.Parse()
 
 	c.EtcdEndpoints = strings.Split(*etcdEndpoints, ",")
@@ -206,10 +209,12 @@ func (n *Node) Bootstrap() error {
 	}
 
 	go n.statusServer()
-	n.CBoard = make(chan *fourchan.Board, len(n.Boards.Boards) + 2)
-	n.CThread = make(chan *fourchan.ThreadInfo, 64)
-	n.CPost = make(chan *fourchan.Post, 128)
-	n.CFile = make(chan *fourchan.File, 24)
+
+	n.LMDelay = 2 * time.Second / time.Duration(len(n.Boards.Boards))
+	n.CBoard = make(chan *fourchan.Board, len(n.Boards.Boards) + 1)
+	n.CThread = make(chan *fourchan.ThreadInfo, 4)
+	n.CPost = make(chan *fourchan.Post, 8)
+	n.CFile = make(chan *fourchan.File, 4)
 
 	for _, board := range n.Boards.Boards {
 		n.Storage.PersistBoard(board)
@@ -218,16 +223,14 @@ func (n *Node) Bootstrap() error {
 	log.Print("Finished bootstrapping node.")
 
 	log.Print("Starting processor routines...")
+	go n.boardProcessor(n.CBoard, n.CThread)
 	for i := 0; i < 2; i++ {
-		go n.boardProcessor(n.CBoard, n.CThread)
-	}
-	for i := 0; i < 8; i++ {
 		go n.threadProcessor(n.CThread, n.CPost)
 	}
-	for i := 0; i < 16; i++ {
+	for i := 0; i < 4; i++ {
 		go n.postProcessor(n.CPost, n.CFile)
 	}
-	for i := 0; i < 3; i++ {
+	for i := 0; i < 2; i++ {
 		go n.fileProcessor(n.CFile)
 	}
 	return nil
@@ -249,20 +252,29 @@ func (n *Node) topologyWatcher() {
 	}
 }
 
-func (n *Node) acquireBoardLock(board string) error {
-	path := fmt.Sprintf("/%s/board-lock/%s", n.Config.ClusterName, board)
-	if _, err := n.Keys.Get(context.Background(), path, nil);
-		err != nil && (err.(etcd.Error)).Code == etcd.ErrorCodeKeyNotFound {
-		// &etcd.SetOptions{TTL: 5*time.Second}
-		_, err = n.Keys.Set(context.Background(), path, n.NodeId, nil)
-		return err
+const (
+	boardLock = "/%s/board-lock/%s"
+)
+
+func (n *Node) acquireBoardLock(board string, ttl time.Duration) error {
+	path := fmt.Sprintf(boardLock, n.Config.ClusterName, board)
+	setopt := &etcd.SetOptions{TTL: ttl}
+	resp, err := n.Keys.Get(context.Background(), path, nil)
+	// Acquire lock
+	if err != nil && (err.(etcd.Error)).Code == etcd.ErrorCodeKeyNotFound {
+		_, err = n.Keys.Set(context.Background(), path, n.NodeId, setopt)
+	// Refresh held lock
+	} else if resp.Node.Value == n.NodeId {
+		_, err = n.Keys.Set(context.Background(), path, n.NodeId, setopt)
+	// Lock held by other node
 	} else {
-		return errors.New(fmt.Sprintf("lock already exists on board %s", board))
+		err = errors.New(fmt.Sprintf("lock already exists on board %s", board))
 	}
+	return err
 }
 
 func (n *Node) releaseBoardLock(board string) {
-	path := fmt.Sprintf("/%s/board-lock/%s", n.Config.ClusterName, board)
+	path := fmt.Sprintf(boardLock, n.Config.ClusterName, board)
 	if _, err := n.Keys.Delete(context.Background(), path, nil); err != nil {
 		log.Printf(fmt.Sprintf("couldn't release lock on board %s", board))
 	}
@@ -294,13 +306,22 @@ func (n *Node) setBoardLM(board string, lastModified int) {
 }
 
 func (n *Node) boardProcessor(boards chan *fourchan.Board, threads chan<- *fourchan.ThreadInfo) {
+	lockTTL := 5 * time.Second
 	for board := range boards {
 		// eliminate drift by publishing to channel immediately
 		boards <- board
-		if err := n.acquireBoardLock(board.Board); err != nil {
+		if err := n.acquireBoardLock(board.Board, lockTTL); err != nil {
 			log.Print(err)
 			continue
 		}
+		ticker := time.NewTicker(lockTTL / 2)
+		go func() {
+			for _ = range ticker.C {
+				if err := n.acquireBoardLock(board.Board, lockTTL); err != nil {
+					log.Fatal("couldn't refresh lock on board ", board.Board, ": ", err)
+				}
+			}
+		}()
 		log.Printf("processing /%s/", board.Board)
 		if board.LM == 0 {
 			board.LM = n.getBoardLM(board.Board)
@@ -325,7 +346,7 @@ func (n *Node) boardProcessor(boards chan *fourchan.Board, threads chan<- *fourc
 				}
 			}
 			if board.LM == newLastModified {
-				time.Sleep(500 * time.Millisecond)
+				time.Sleep(n.LMDelay)
 				//log.Printf("board %s didn't change", board.Board)
 			} else {
 				board.LM = newLastModified
@@ -334,6 +355,7 @@ func (n *Node) boardProcessor(boards chan *fourchan.Board, threads chan<- *fourc
 		} else if statusCode != 304 {
 			log.Print("Error downloading board ", board.Board, " ", e)
 		}
+    ticker.Stop()
 		n.releaseBoardLock(board.Board)
 	}
 }
@@ -378,6 +400,9 @@ func (n *Node) postProcessor(posts <-chan *fourchan.Post, files chan<- *fourchan
 
 func (n *Node) fileProcessor(files <-chan *fourchan.File) {
 	for file := range files {
+		if n.Config.NoFiles {
+			continue
+		}
 		//log.Printf("processing /%s/file/%d", file.Board, file.Tim)
 		if !n.Storage.FileExists(file) {
 			data, err := fourchan.DownloadFile(file.Board, file.Tim, file.Ext)
