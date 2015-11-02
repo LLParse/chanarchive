@@ -23,9 +23,9 @@ func EasyGet(url string, lastModified time.Time) ([]byte, string, int, string, e
 
 	req, _ := http.NewRequest("GET", url, nil)
 	req.Header.Add("User-Agent", USER_AGENT)
-	/*if !lastModified.IsZero() {
+	if !lastModified.IsZero() {
 		req.Header.Add("If-Modified-Since", lastModified.Format(http.TimeFormat))
-	}*/
+	}
 
 	resp, net_error := DefaultClient.Do(req)
 
