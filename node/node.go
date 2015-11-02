@@ -269,13 +269,16 @@ func (n *Node) releaseBoardLock(board string) {
 }
 
 func (n *Node) getBoardLM(board string) int {
-	lm := 0
 	path := fmt.Sprintf("/%s/board-lm/%s", n.Config.ClusterName, board)
 	resp, err := n.Keys.Get(context.Background(), path, nil)
 	if err != nil && (err.(etcd.Error)).Code != 100 {
 		log.Print("error getting lastModified: ", err)
-	} else if lm, err = strconv.Atoi(resp.Node.Value); err != nil {
+		return 0
+	}
+	lm, err := strconv.Atoi(resp.Node.Value)
+	if err != nil {
 		log.Print("error parsing lastModified: ", err)
+		return 0
 	}
 	return lm
 }
