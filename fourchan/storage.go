@@ -14,6 +14,7 @@ type Storage struct {
 func NewStorage(keyspace string, hosts ...string) *Storage {
   storage := new(Storage)
   storage.config = gocql.NewCluster(hosts...)
+  storage.config.ProtoVersion = 4
   storage.config.Keyspace = keyspace
   storage.config.Consistency = gocql.Quorum
   storage.config.Timeout = 3000 * time.Millisecond
