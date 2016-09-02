@@ -20,3 +20,21 @@ cassandra:
     CASSANDRA_CLUSTER_NAME: streamingchan
     HEAP_NEWSIZE: ${HEAP_NEWSIZE}
     MAX_HEAP_SIZE: ${MAX_HEAP_SIZE}
+node:
+  image: llparse/streamingchan:v1.0
+  command: "-node -bindip 127.0.0.1 -cassandra cassandra -clustername streamingchan -etcd http://etcd:2379 -httpport 3333 -keyspace chan -onlyboards g,vp -tw 10"
+  labels:
+    io.rancher.container.pull_image: always
+    io.rancher.scheduler.affinity:container_label_soft_ne: io.rancher.stack_service.name=$${stack_name}/$${service_name}
+  links:
+  - etcd
+  - cassandra
+api:
+  image: llparse/streamingchan:v1.0
+  command: "-api -bindip 127.0.0.1 -cassandra cassandra -clustername streamingchan -etcd http://etcd:2379 -httpport 4000 -keyspace chan"
+  labels:
+    io.rancher.container.pull_image: always
+    io.rancher.scheduler.affinity:container_label_soft_ne: io.rancher.stack_service.name=$${stack_name}/$${service_name}
+  links:
+  - etcd
+  - cassandra

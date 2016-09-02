@@ -32,13 +32,13 @@
     description: The initial heap size of the Cassandra JVM
     label: Initial Heap Size
     required: true
-    default: 800M
+    default: 1G
     type: string
   - variable: MAX_HEAP_SIZE
     description: The maximum heap size of the Cassandra JVM
     label: Max Heap Size
     required: true
-    default: 4G
+    default: 1G
     type: string
 etcd:
   retain_ip: true

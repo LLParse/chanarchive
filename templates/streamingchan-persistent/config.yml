@@ -1,4 +1,5 @@
 name: StreamingChan [Persistent]
 description: |
   A distributed api designed to create a "real-time" like endpoint for the 4Chan AP
+version: 1.0
 category: Scrapers

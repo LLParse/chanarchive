@@ -38,8 +38,8 @@ func main() {
 
 func dohelp() {
 	fmt.Printf("Help:\n")
-	fmt.Printf("Run `%s node` to start a node.\n", os.Args[0])
-	fmt.Printf("Run `%s api` to start a web endpoint.\n", os.Args[0])
+	fmt.Printf("Run `%s -node` to start a node.\n", os.Args[0])
+	fmt.Printf("Run `%s -api` to start a web endpoint.\n", os.Args[0])
 	os.Exit(1)
 }
 
