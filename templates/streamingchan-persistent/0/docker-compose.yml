@@ -1,0 +1,26 @@
+etcd:
+  image: rancher/etcd:v2.3.7-9
+  labels:
+    io.rancher.container.pull_image: always
+    io.rancher.scheduler.affinity:container_label_ne: io.rancher.stack_service.name=$${stack_name}/$${service_name}
+    io.rancher.scheduler.affinity:host_label_soft: etcd=true
+  environment:
+    RANCHER_DEBUG: 'true'
+    BACKUP_PERIOD: 15m
+    BACKUP_RETENTION: 24h
+    EMBEDDED_BACKUPS: 'false'
+  volumes:
+  - ${ETCD_VOLUME_MOUNT}:/pdata
+cassandra:
+  image: llparse/cassandra:v3.7
+  labels:
+    io.rancher.container.pull_image: always
+    io.rancher.scheduler.affinity:container_label_ne: io.rancher.stack_service.name=$${stack_name}/cassandra,io.rancher.stack_service.name=$${stack_name}/seed
+    io.rancher.scheduler.affinity:host_label_soft: cassandra=true
+  environment:
+    RANCHER_DEBUG: 'true'
+    CASSANDRA_CLUSTER_NAME: streamingchan
+    HEAP_NEWSIZE: ${HEAP_NEWSIZE}
+    MAX_HEAP_SIZE: ${MAX_HEAP_SIZE}
+  volumes:
+  - ${CASS_VOLUME_MOUNT}:/var/lib/cassandra

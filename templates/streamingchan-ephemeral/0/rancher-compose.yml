@@ -1,0 +1,47 @@
+.catalog:
+  version: 1.0
+  minimum_rancher_version: v1.1.1
+  questions:
+  - variable: NUM_ETCD
+    description: Desired number of Etcd nodes.
+    label: Etcd Scale
+    required: true
+    default: 3
+    type: int
+  - variable: NUM_CASS
+    description: Desired number of Cassandra nodes.
+    label: Cassandra Scale
+    required: true
+    default: 3
+    type: int
+  - variable: HEAP_NEWSIZE
+    description: The initial heap size of the Cassandra JVM
+    label: Initial Heap Size
+    required: true
+    default: 800M
+    type: string
+  - variable: MAX_HEAP_SIZE
+    description: The maximum heap size of the Cassandra JVM
+    label: Max Heap Size
+    required: true
+    default: 4G
+    type: string
+etcd:
+  retain_ip: true
+  scale: ${NUM_ETCD}
+  health_check:
+    port: 2378
+    request_line: GET /health HTTP/1.0
+    interval: 5000
+    response_timeout: 3000
+    healthy_threshold: 1
+    unhealthy_threshold: 2
+cassandra:
+  scale: ${NUM_CASS}
+  retain_ip: true
+  health_check:
+    port: 9042
+    interval: 5000
+    response_timeout: 3000
+    healthy_threshold: 1
+    unhealthy_threshold: 2
