@@ -56,7 +56,6 @@ etcd:
     unhealthy_threshold: 2
 cassandra:
   scale: ${NUM_CASS}
-  retain_ip: true
   health_check:
     port: 9042
     interval: 5000
