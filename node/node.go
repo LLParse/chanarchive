@@ -327,9 +327,7 @@ func (n *Node) boardProcessor(boards chan *fourchan.Board, threads chan<- *fourc
 			}
 		}()
 		log.Printf("processing /%s/", board.Board)
-		if board.LM == 0 {
-			board.LM = n.getBoardLM(board.Board)
-		}
+		board.LM = n.getBoardLM(board.Board)
 		var lastModifiedHeader time.Time
 		if t, statusCode, lastModifiedStr, e := fourchan.DownloadBoard(board.Board, lastModifiedHeader); e == nil {
 			n.Stats.Incr(METRIC_BOARD_REQUESTS, 1)
