@@ -1,0 +1,92 @@
+.catalog:
+  version: 1.1
+  minimum_rancher_version: v1.1.1
+  questions:
+  - variable: NUM_ETCD
+    description: Desired number of Etcd nodes
+    label: Etcd Scale
+    required: true
+    default: 3
+    type: int
+  - variable: NUM_CASS
+    description: Desired number of Cassandra nodes
+    label: Cassandra Scale
+    required: true
+    default: 3
+    type: int
+  - variable: CASS_VOLUME_MOUNT
+    description: "Absolute path for a host bind mount or <[a-zA-Z0-9][a-zA-Z0-9_.-]*> for a named volume"
+    label: Cassandra Persistence Location
+    required: true
+    default: cassandra
+    type: string
+  - variable: ETCD_VOLUME_MOUNT
+    description: "Absolute path for a host bind mount or <[a-zA-Z0-9][a-zA-Z0-9_.-]*> for a named volume"
+    label: Etcd Persistence Location
+    required: true
+    default: etcd
+    type: string
+  - variable: HEAP_NEWSIZE
+    description: The initial heap size of the Cassandra JVM
+    label: Initial Heap Size
+    required: true
+    default: 1G
+    type: string
+  - variable: MAX_HEAP_SIZE
+    description: The maximum heap size of the Cassandra JVM
+    label: Max Heap Size
+    required: true
+    default: 1G
+    type: string
+  - variable: NUM_NODE
+    description: Desired number of 4Chan archiver nodes
+    label: Node Scale
+    required: true
+    default: 1
+    type: int
+  - variable: THREAD_WORKERS
+    description: Number of worker threads to spawn for nodes
+    label: Thread Workers
+    required: true
+    default: 10
+    type: int
+  - variable: NODE_ARGS
+    description: Any other node arguments
+    label: Node Arguments
+    required: false
+    default: "-onlyboards g,vp"
+    type: string
+etcd:
+  retain_ip: true
+  scale: ${NUM_ETCD}
+  health_check:
+    port: 2378
+    request_line: GET /health HTTP/1.0
+    interval: 5000
+    response_timeout: 3000
+    healthy_threshold: 1
+    unhealthy_threshold: 2
+cassandra:
+  scale: ${NUM_CASS}
+  retain_ip: true
+  health_check:
+    port: 9042
+    interval: 5000
+    response_timeout: 3000
+    healthy_threshold: 1
+    unhealthy_threshold: 2
+node:
+  scale: ${NUM_NODE}
+  health_check:
+    port: 3333
+    interval: 5000
+    response_timeout: 3000
+    healthy_threshold: 1
+    unhealthy_threshold: 2
+api:
+  health_check:
+    port: 4000
+    interval: 5000
+    response_timeout: 3000
+    healthy_threshold: 1
+    unhealthy_threshold: 2
