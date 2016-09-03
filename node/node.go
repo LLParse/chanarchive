@@ -118,8 +118,12 @@ func parseFlags() *NodeConfig {
 
 	c.EtcdEndpoints = strings.Split(*etcdEndpoints, ",")
 	c.CassEndpoints = strings.Split(*cassEndpoints, ",")
-	c.OnlyBoards    = strings.Split(*onlyBoards,    ",")
-	c.ExcludeBoards = strings.Split(*excludeBoards, ",")
+	if len(*onlyBoards) > 0 {
+		c.OnlyBoards    = strings.Split(*onlyBoards,    ",")
+	}
+	if len(*excludeBoards) > 0 {
+		c.ExcludeBoards = strings.Split(*excludeBoards, ",")
+	}
 	c.CmdLine = strings.Join(os.Args, " ")
 	return c
 }

@@ -24,3 +24,37 @@ cassandra:
     MAX_HEAP_SIZE: ${MAX_HEAP_SIZE}
   volumes:
   - ${CASS_VOLUME_MOUNT}:/var/lib/cassandra
+node:
+  image: llparse/streamingchan:v1.0
+  command: >
+    -node
+    -cassandra cassandra
+    -clustername streamingchan
+    -etcd http://etcd:2379
+    -httpport 3333
+    -keyspace chan
+    -tw ${THREAD_WORKERS}
+    ${NODE_ARGS}
+  labels:
+    io.rancher.container.pull_image: always
+    io.rancher.scheduler.affinity:container_label_soft_ne: io.rancher.stack_service.name=$${stack_name}/$${service_name}
+  links:
+  - etcd
+  - cassandra
+api:
+  image: llparse/streamingchan:v1.0
+  command: >
+    -api
+    -cassandra cassandra
+    -clustername streamingchan
+    -etcd http://etcd:2379
+    -httpport 4000
+    -keyspace chan
+  labels:
+    io.rancher.container.pull_image: always
+    io.rancher.scheduler.affinity:container_label_ne: io.rancher.stack_service.name=$${stack_name}/$${service_name}
+  ports:
+  - 4000:4000/tcp
+  links:
+  - etcd
+  - cassandra
