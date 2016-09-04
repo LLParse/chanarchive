@@ -4,6 +4,7 @@ etcd:
     io.rancher.container.pull_image: always
     io.rancher.scheduler.affinity:container_label_ne: io.rancher.stack_service.name=$${stack_name}/$${service_name}
     io.rancher.scheduler.affinity:host_label_soft: etcd=true
+    io.rancher.scheduler.affinity:host_label_soft_ne: cassandra=true
   environment:
     RANCHER_DEBUG: 'true'
     BACKUP_PERIOD: 15m
@@ -17,6 +18,7 @@ cassandra:
     io.rancher.container.pull_image: always
     io.rancher.scheduler.affinity:container_label_ne: io.rancher.stack_service.name=$${stack_name}/cassandra,io.rancher.stack_service.name=$${stack_name}/seed
     io.rancher.scheduler.affinity:host_label_soft: cassandra=true
+    io.rancher.scheduler.affinity:host_label_soft_ne: etcd=true
   environment:
     RANCHER_DEBUG: 'true'
     CASSANDRA_CLUSTER_NAME: streamingchan
@@ -38,6 +40,7 @@ node:
   labels:
     io.rancher.container.pull_image: always
     io.rancher.scheduler.affinity:container_label_soft_ne: io.rancher.stack_service.name=$${stack_name}/$${service_name}
+    io.rancher.scheduler.affinity:host_label_soft_ne: cassandra=true,etcd=true
   links:
   - etcd
   - cassandra
@@ -53,6 +56,7 @@ api:
   labels:
     io.rancher.container.pull_image: always
     io.rancher.scheduler.affinity:container_label_ne: io.rancher.stack_service.name=$${stack_name}/$${service_name}
+    io.rancher.scheduler.affinity:host_label_soft_ne: cassandra=true,etcd=true
   ports:
   - 4000:4000/tcp
   links:
