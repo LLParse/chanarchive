@@ -2,14 +2,14 @@ package main
 
 import (
 	"fmt"
-	"github.com/llparse/streamingchan/api"
-	"github.com/llparse/streamingchan/node"
-	"github.com/llparse/streamingchan/version"
 	"math/rand"
 	"os"
 	"os/signal"
 	"runtime"
 	"time"
+	"github.com/llparse/streamingchan/api"
+	"github.com/llparse/streamingchan/node"
+	"github.com/llparse/streamingchan/version"
 )
 
 func main() {
@@ -66,6 +66,7 @@ func donode() {
 	ctrlc(stop)
 	serverNode := node.NewNode(stop)
 	if e := serverNode.Bootstrap(); e != nil {
+		fmt.Println(e)
 		os.Exit(1)
 	}
 	<-stop

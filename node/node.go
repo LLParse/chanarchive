@@ -1,18 +1,14 @@
 package node
 
 import (
-	"crypto/md5"
-	crand "crypto/rand"
-	"encoding/hex"
 	"encoding/json"
   "golang.org/x/net/context"
   etcd "github.com/coreos/etcd/client"
 	"github.com/llparse/streamingchan/fourchan"
-	"io"
+	"github.com/satori/go.uuid"
 	"log"
 	"os"
 	"runtime"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -24,7 +20,7 @@ import (
 )
 
 type Node struct {
-	NodeId           string
+	Id               string
 	Stats            *NodeStats
 	Boards           *fourchan.Boards
 	Storage          *fourchan.Storage
@@ -47,8 +43,7 @@ type Node struct {
 }
 
 type NodeInfo struct {
-	NodeId    string `json:"nodeid"`
-	NodeIndex int    `json:"nodeindex"`
+	Id        string `json:"id"`
 	Hostname  string `json:"hostname"`
 }
 
@@ -68,27 +63,12 @@ type NodeConfig struct {
 	NoFiles       bool
 }
 
-
-func randNodeId() string {
-	h := md5.New()
-
-	b := make([]byte, 1024)
-	n, err := io.ReadFull(crand.Reader, b)
-	if n != len(b) || err != nil {
-		panic(err)
-		return ""
-	}
-	if sz, err := h.Write(b); err != nil {
-		panic(err)
-		return ""
-	} else {
-		if sz != n {
-			panic("Failed to write random bytes to hash?")
-		}
-		return hex.EncodeToString(h.Sum(nil))
-	}
-	panic("")
-}
+const (
+	boardLock = "/%s/board-lock/%s"
+	boardLM = "/%s/board-lm/%s"
+	nodeLockTTL = 30 * time.Second
+	boardLockTTL = 10 * time.Second
+)
 
 func (n *Node) Close() {
 	n.Closed = true
@@ -149,66 +129,56 @@ func NewNode(stop chan<- bool) *Node {
 	return n
 }
 
-func (n *Node) Bootstrap() error {
-	log.Print("Bootstrapping node...")
-	n.NodeId = randNodeId()
-	log.Print("Node Id:", n.NodeId)
+func (n *Node) refreshNode() {
+	log.Print("Refreshing node ", n.Info.Id)
+	_, err := n.Keys.Set(
+		context.Background(),
+		fmt.Sprintf("/%s/nodes/%s", n.Config.ClusterName, n.Info.Id),
+		"",
+		&etcd.SetOptions{TTL: nodeLockTTL, Refresh: true})
 
-	nodepath := "/" + n.Config.ClusterName + "/nodes"
-	log.Print("Registering to etcd...")
-	resp, err := n.Keys.Get(context.Background(), nodepath, nil)
-	if err != nil && (err.(etcd.Error)).Code != 100 {
-		log.Print("Failed to get ", nodepath, ": ", err)
-		return err
-	}
-
-	var nodes []NodeInfo
-	nodeIndex := 1
-	if err == nil {
-		if e := json.Unmarshal([]byte(resp.Node.Value), &nodes); e != nil {
-			log.Print("Failed to unmarshhal ", nodepath)
-			log.Print(resp.Node.Value)
-			return e
-		}
-		for ; nodeIndex <= len(nodes); nodeIndex++ {
-			found := false
-			for _, node := range nodes {
-				if nodeIndex == node.NodeIndex {
-					found = true
-					break
-				}
-			}
-			if !found {
-				break
-			}
-		}
-	} else {
-		nodes = make([]NodeInfo, 0, 1)
-	}
-	n.Info = &NodeInfo{n.NodeId, nodeIndex, n.Config.Hostname}
-	nodes = append(nodes, *n.Info)
-
-	log.Print("Finished connecting, watching nodes...")
-	go n.topologyWatcher()
-
-	sort.Sort(NodeInfoList(nodes))
-	for idx, _ := range nodes {
-		nodes[idx].NodeIndex = idx + 1
-	}
-	newNodeData, _ := json.Marshal(nodes)
-	time.Sleep(1 * time.Second)
-	log.Print("Updating node list.")
-	_, err = n.Keys.Set(context.Background(), nodepath, string(newNodeData), nil)
 	if err != nil {
-		log.Print("Failed to update node list: ", err)
+		log.Fatalf("Couldn't refresh node %s", n.Info.Id)
+	}
+}
+
+func (n *Node) refreshNodeLoop() {
+	ticker := time.NewTicker(nodeLockTTL / 2)
+	for {
+		select {
+			case <-ticker.C:
+				n.refreshNode()
+		}
+	}
+}
+
+func (n *Node) Bootstrap() error {
+	log.Print("Bootstrap routine started")
+
+	n.Id = uuid.NewV4().String()
+	n.Info = &NodeInfo{n.Id, n.Config.Hostname}
+	nodeInfoJson, _ := json.Marshal(n.Info)
+	log.Printf("Creating node %s\n", n.Info.Id)
+
+	_, err := n.Keys.Set(
+		context.Background(),
+		fmt.Sprintf("/%s/nodes/%s", n.Config.ClusterName, n.Info.Id),
+		string(nodeInfoJson),
+		&etcd.SetOptions{TTL: nodeLockTTL})
+
+	if err != nil {
 		return err
 	}
+
+	log.Print("Bootstrap routine completed")
+
+	go n.refreshNodeLoop()
+	go n.topologyWatcher()
 
 	log.Print("Downloading boards list...")
 	n.Boards, err = fourchan.DownloadBoards(n.Config.OnlyBoards, n.Config.ExcludeBoards)
 	log.Printf("%+v", n.Boards)
 	if err != nil {
-		log.Print("Failed to download boards list: ", err)
 		return err
 	}
 
@@ -241,24 +211,29 @@ func (n *Node) Bootstrap() error {
 }
 
 func (n *Node) topologyWatcher() {
-	path := "/" + n.Config.ClusterName + "/nodes"
-	watcher := n.Keys.Watcher(path, nil)
+	log.Println("Watching node topology for changes")
+
+	watcher := n.Keys.Watcher(
+		fmt.Sprintf("/%s/nodes", n.Config.ClusterName), 
+		&etcd.WatcherOptions{Recursive: true})
+
 	for {
 		resp, err := watcher.Next(context.Background())
 		if err != nil {
-			log.Print(path, " watcher failure:", err)
+			log.Print("watcher failed:", err)
 			continue
 		}
-		if resp.Action == "set" {
-			log.Print(path, " updated, not dividing boards...")
-			//n.divideBoards()
-		}		
+		log.Printf("node topology updated (%s)\n", resp.Action)
 	}
+	// coordination stuff
+	/*nodesKey := fmt.Sprintf("/%s/nodes", n.Config.ClusterName)
+	resp, err := n.Keys.Get(
+		context.Background(),
+		nodesKey,
+		&etcd.GetOptions{Recursive: true, Quorum: true})
+	}*/
+	// end coordination stuff
 }
-
-const (
-	boardLock = "/%s/board-lock/%s"
-)
 
 func (n *Node) acquireBoardLock(board string, ttl time.Duration) error {
 	path := fmt.Sprintf(boardLock, n.Config.ClusterName, board)
@@ -266,10 +241,10 @@ func (n *Node) acquireBoardLock(board string, ttl time.Duration) error {
 	resp, err := n.Keys.Get(context.Background(), path, nil)
 	// Acquire lock
 	if err != nil && (err.(etcd.Error)).Code == etcd.ErrorCodeKeyNotFound {
-		_, err = n.Keys.Set(context.Background(), path, n.NodeId, setopt)
+		_, err = n.Keys.Set(context.Background(), path, n.Id, setopt)
 	// Refresh held lock
-	} else if resp.Node.Value == n.NodeId {
-		_, err = n.Keys.Set(context.Background(), path, n.NodeId, setopt)
+	} else if resp.Node.Value == n.Id {
+		_, err = n.Keys.Set(context.Background(), path, n.Id, setopt)
 	// Lock held by other node
 	} else {
 		err = errors.New(fmt.Sprintf("lock already exists on board %s", board))
@@ -280,30 +255,37 @@ func (n *Node) acquireBoardLock(board string, ttl time.Duration) error {
 func (n *Node) releaseBoardLock(board string) {
 	path := fmt.Sprintf(boardLock, n.Config.ClusterName, board)
 	if _, err := n.Keys.Delete(context.Background(), path, nil); err != nil {
-		log.Printf(fmt.Sprintf("couldn't release lock on board %s", board))
+		log.Printf("couldn't release lock on board %s", board)
+		log.Println(err)
 	}
 }
 
 func (n *Node) getBoardLM(board string) int {
-	path := fmt.Sprintf("/%s/board-lm/%s", n.Config.ClusterName, board)
-	resp, err := n.Keys.Get(context.Background(), path, nil)
-	if err != nil && (err.(etcd.Error)).Code != 100 {
-		log.Print("error getting lastModified: ", err)
-		return 0
-	}
-	if resp == nil {
-		return 0
-	}
-	lm, err := strconv.Atoi(resp.Node.Value)
+	var resp *etcd.Response
+	var err error
+	lm := 0
+
+	path := fmt.Sprintf(boardLM, n.Config.ClusterName, board)
+	resp, err = n.Keys.Get(context.Background(), path, nil)
 	if err != nil {
-		log.Print("error parsing lastModified: ", err)
+		if (err.(etcd.Error)).Code != etcd.ErrorCodeKeyNotFound {
+			log.Fatal("error getting lastModified: ", err)
+		} else {
+			log.Printf("no lastModified set for board %s\n", board)
+		}
 		return 0
+	} else {
+		lm, err = strconv.Atoi(resp.Node.Value)
+		if err != nil {
+			log.Print("error parsing lastModified: ", err)
+			return 0
+		}		
 	}
 	return lm
 }
 
 func (n *Node) setBoardLM(board string, lastModified int) {
-	path := fmt.Sprintf("/%s/board-lm/%s", n.Config.ClusterName, board)
+	path := fmt.Sprintf(boardLM, n.Config.ClusterName, board)
 	if _, err := n.Keys.Set(context.Background(), path, strconv.Itoa(lastModified), nil); err != nil {
 		log.Printf("Error setting lastModified for board %s", board)
 	}
@@ -339,7 +321,7 @@ func (n *Node) boardProcessor(boards chan *fourchan.Board, threads chan<- *fourc
 					if thread.LastModified > board.LM {
 						thread.Board = page.Board
 						thread.MinPost = board.LM
-						thread.OwnerId = n.NodeId
+						thread.OwnerId = n.Id
 						threads <- thread
 					}
 					if thread.LastModified > newLastModified {
@@ -426,37 +408,7 @@ func (n *Node) CleanShutdown() {
 	}
 	n.Shutdown = true
 	log.Print("Removing node from cluster.")
-	for tries := 0; tries < 32; tries++ {
-		resp, err := n.Keys.Get(context.Background(), n.Config.ClusterName+"/nodes", nil)
-		if err == nil {
-			var nodes []NodeInfo
-			result := resp.Node
-			if e := json.Unmarshal([]byte(result.Value), &nodes); e != nil {
-				log.Print("Failed to unmarshal " + n.Config.ClusterName + "/nodes")
-				return
-			}
-			sort.Sort(NodeInfoList(nodes))
-			for idx, _ := range nodes {
-				nodes[idx].NodeIndex = idx + 1
-			}
-
-			newNodes := make([]NodeInfo, 0, 16)
-			for _, node := range nodes {
-				if node.NodeId != n.NodeId {
-					newNodes = append(newNodes, node)
-				}
-			}
-			newNodeData, _ := json.Marshal(newNodes)
-			_, err = n.Keys.Set(context.Background(), n.Config.ClusterName+"/nodes", string(newNodeData), &etcd.SetOptions{PrevValue: result.Value})
-			if err != nil {
-				log.Print("Failed to update node list. Possibly another node bootstrapped before finish.")
-				continue
-			}
-			break
-		} else {
-			log.Print("Error getting nodes during clean shutdown")
-		}
-	}
+	// TODO remove node from cluster
 	timeout := make(chan bool, 1)
 	go func() {
 		time.Sleep(120 * time.Second)
