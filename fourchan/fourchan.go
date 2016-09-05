@@ -84,27 +84,11 @@ func DownloadBoards(only []string, exclude []string) (*Boards, error) {
 	}
 }
 
-func DownloadBoard(board string, lastModified time.Time) ([]*ThreadPage, int, string, error) {
-	if data, _, statusCode, lastModified, err := EasyGet("http://api.4chan.org/"+board+"/threads.json", lastModified); err == nil {
-		var t []*ThreadPage
-		if err := json.Unmarshal(data, &t); err == nil {
-			for idx, _ := range t {
-				t[idx].Board = board
-			}
-			return t, statusCode, lastModified, nil
-		} else {
-			return nil, statusCode, lastModified, err
-		}
-	} else {
-		return nil, 500, "", err
-	}
-}
-
-func DownloadThread(board string, thread int) (Thread, error) {
+func DownloadThread(board string, thread int) (*Thread, error) {
 	url := fmt.Sprintf("http://api.4chan.org/%s/res/%d.json", board, thread)
 	if data, _, _, _, err := EasyGet(url, time.Time{}); err == nil {
-		var t Thread
-		if err := json.Unmarshal(data, &t); err == nil {
+		var t *Thread
+		if err := json.Unmarshal(data, t); err == nil {
 			t.No = thread
 			for idx, _ := range t.Posts {
 				t.Posts[idx].Board = board
@@ -114,7 +98,7 @@ func DownloadThread(board string, thread int) (Thread, error) {
 			return t, err
 		}
 	} else {
-		return Thread{}, err
+		return &Thread{}, err
 	}
 }
 

@@ -49,14 +49,16 @@ func (s *Storage) PersistBoard(b *Board) {
   }
 }
 
-func (s *Storage) PersistThread(t *ThreadInfo) {
+func (s *Storage) PersistThread(t *Thread) {
+  // TODO  write t.LastModified
   if err := s.session.Query(`INSERT INTO thread (chan, board, number) VALUES (?, ?, ?)`,
     "4", t.Board, t.No).Exec(); err != nil {
     log.Print("Persist thread error: ", err)
   }
 }
 
-func (s *Storage) PersistThreadPosts(t *ThreadInfo, post []int) {
+func (s *Storage) PersistThreadPosts(t *Thread, post []int) {
+  // TODO  write t.LastModified
   if err := s.session.Query(`UPDATE thread SET posts = posts + ? WHERE chan = ? AND board = ? AND number = ?`,
     post, "4", t.Board, t.No).Exec(); err != nil {
     log.Print("Persist thread post error: ", err)
@@ -130,14 +132,14 @@ func (s *Storage) GetBoards(channel string, sort string) []*Board {
   return boards
 }
 
-func (s *Storage) GetThreads(channel string, board string, sort string) []*ThreadInfo {
+func (s *Storage) GetThreads(channel string, board string, sort string) []*Thread {
   if sort == "" {
     sort = "ASC"
   }
   iter := s.session.Query(`SELECT number FROM thread WHERE chan = ? AND board = ? ORDER BY number ` + sort, channel, board).Iter()
-  var threads []*ThreadInfo
+  var threads []*Thread
   for {
-    thread := &ThreadInfo{}
+    thread := &Thread{}
     if iter.Scan(&thread.No) {
       threads = append(threads, thread)
     } else {

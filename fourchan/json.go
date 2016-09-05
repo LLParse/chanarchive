@@ -1,6 +1,9 @@
 package fourchan
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 type File struct {
 	Md5   string `json:"md5"`
@@ -73,11 +76,6 @@ type ThreadView struct {
 	Posts  []*Post
 }
 
-type Thread struct {
-	No    int     `json:"no"`
-	Posts []*Post `json:"posts"`
-}
-
 type Board struct {
 	Threads []Thread `json:"threads,omitempty"`
 	Board   string   `json:"board"`
@@ -85,23 +83,21 @@ type Board struct {
 	WsBoard uint8    `json:"ws_board"`
 	PerPage int      `json:"per_page"`
 	Pages   int      `json:"pages"`
-	LM      int
-}
-
-type ThreadInfo struct {
-	Board        string `json:"board,omitempty"`
-	No           int    `json:"no"`
-	LastModified int    `json:"last_modified,omitempty"`
-	MinPost      int    `json:"min_post,omitempty"`
-	OwnerId      string `json:"owner_hint,omitempty"`
-}
-
-type ThreadPage struct {
-	Board   string        `json:"board"`
-	Page    int           `json:"page"`
-	Threads []*ThreadInfo `json:"threads"`
+	LM      time.Time
 }
 
 type Boards struct {
 	Boards []*Board `json:"boards"`
+}
+
+type BoardPage struct {
+	Page    int       `json:"page"`
+	Threads []*Thread `json:"threads"`
+}
+
+type Thread struct {
+	Board        string  `json:"board"`
+	No           int     `json:"no"`
+	LastModified int     `json:"last_modified"`
+	Posts        []*Post `json:"posts"`
 }

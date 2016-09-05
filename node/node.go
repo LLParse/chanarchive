@@ -25,7 +25,7 @@ type Node struct {
 	Keys             etcd.KeysAPI
 	LMDelay          time.Duration
 	CBoard           chan *fourchan.Board
-	CThread          chan *fourchan.ThreadInfo
+	CThread          chan *fourchan.Thread
 	CPost            chan *fourchan.Post
 	CFile            chan *fourchan.File
 	BoardStop        []chan bool
@@ -123,7 +123,7 @@ func NewNode(stop chan<- bool) *Node {
 	n.Shutdown = false
 	n.Closed = false
 	// TODO these chan sizes are rather arbitrary...
-	n.CThread = make(chan *fourchan.ThreadInfo, 4)
+	n.CThread = make(chan *fourchan.Thread, 4)
 	n.CPost = make(chan *fourchan.Post, 8)
 	n.CFile = make(chan *fourchan.File, 4)
 	return n
