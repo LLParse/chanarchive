@@ -68,6 +68,7 @@ const (
 	boardLM = "/%s/board-lm/%s"
 	nodeLockTTL = 30 * time.Second
 	boardLockTTL = 10 * time.Second
+	boardRefreshPeriod = 5 * time.Second
 )
 
 func (n *Node) Close() {
@@ -177,6 +178,10 @@ func (n *Node) Bootstrap() error {
 
 	log.Print("Downloading boards list...")
 	n.Boards, err = fourchan.DownloadBoards(n.Config.OnlyBoards, n.Config.ExcludeBoards)
+	numBoards := len(n.Boards.Boards)
+	if numBoards == 0 {
+		log.Fatal("No boards to process")
+	}
 	log.Printf("%+v", n.Boards)
 	if err != nil {
 		return err
@@ -185,25 +190,44 @@ func (n *Node) Bootstrap() error {
 	go n.statusServer()
 
 	n.LMDelay = 2 * time.Second / time.Duration(len(n.Boards.Boards))
-	n.CBoard = make(chan *fourchan.Board, len(n.Boards.Boards) + 1)
 	n.CThread = make(chan *fourchan.ThreadInfo, 4)
 	n.CPost = make(chan *fourchan.Post, 8)
 	n.CFile = make(chan *fourchan.File, 4)
 
-	for _, board := range n.Boards.Boards {
-		n.Storage.PersistBoard(board)
-		n.CBoard <- board
-	}
-	log.Print("Finished bootstrapping node.")
+	numThreadRoutines := 2
+	numPostRoutines := 4
+	numFileRoutines := 2
 
-	log.Print("Starting processor routines...")
-	go n.boardProcessor(n.CBoard, n.CThread)
+	log.Printf("Starting %d board routines", numBoards)
+	go func() {
+		boardIndex := 0
+		ticker := time.NewTicker(boardRefreshPeriod / time.Duration(numBoards))
+		for _ = range ticker.C {
+			board := n.Boards.Boards[boardIndex]
+			
+			go n.boardProcessor(board, n.CThread)
+			n.Storage.PersistBoard(board)
+
+			if boardIndex + 1 == numBoards {
+				ticker.Stop()
+				break
+			} else {
+				boardIndex += 1
+			}
+		}		
+	}()
+
+	log.Printf("Starting %d thread routines", numThreadRoutines)
 	for i := 0; i < 2; i++ {
 		go n.threadProcessor(n.CThread, n.CPost)
 	}
+
+	log.Printf("Starting %d post routines", numPostRoutines)
 	for i := 0; i < 4; i++ {
 		go n.postProcessor(n.CPost, n.CFile)
 	}
+
+	log.Printf("Starting %d file routines", numFileRoutines)
 	for i := 0; i < 2; i++ {
 		go n.fileProcessor(n.CFile)
 	}
@@ -291,24 +315,23 @@ func (n *Node) setBoardLM(board string, lastModified int) {
 	}
 }
 
-func (n *Node) boardProcessor(boards chan *fourchan.Board, threads chan<- *fourchan.ThreadInfo) {
+func (n *Node) boardProcessor(board *fourchan.Board, threads chan<- *fourchan.ThreadInfo) {
 	lockTTL := 10 * time.Second
-	for board := range boards {
-		// eliminate drift by publishing to channel immediately
-		boards <- board
+	boardTicker := time.NewTicker(boardRefreshPeriod)
+	for _ = range boardTicker.C {
 		if err := n.acquireBoardLock(board.Board, lockTTL); err != nil {
 			log.Print(err)
 			continue
 		}
-		ticker := time.NewTicker(lockTTL / 2)
+		lockTicker := time.NewTicker(lockTTL / 2)
 		go func() {
-			for _ = range ticker.C {
+			for _ = range lockTicker.C {
 				if err := n.acquireBoardLock(board.Board, lockTTL); err != nil {
 					log.Fatal("couldn't refresh lock on board ", board.Board, ": ", err)
 				}
 			}
 		}()
-		log.Printf("processing /%s/", board.Board)
+		log.Printf("processing board %s", board.Board)
 		board.LM = n.getBoardLM(board.Board)
 		var lastModifiedHeader time.Time
 		if t, statusCode, lastModifiedStr, e := fourchan.DownloadBoard(board.Board, lastModifiedHeader); e == nil {
@@ -339,7 +362,8 @@ func (n *Node) boardProcessor(boards chan *fourchan.Board, threads chan<- *fourc
 		} else if statusCode != 304 {
 			log.Print("Error downloading board ", board.Board, " ", e)
 		}
-    ticker.Stop()
+		// TODO use a chan and release on cleanup
+    lockTicker.Stop()
 		n.releaseBoardLock(board.Board)
 	}
 }
@@ -397,7 +421,7 @@ func (n *Node) fileProcessor(files <-chan *fourchan.File) {
 				log.Printf("Error downloading file %+v: %+v", file, err)
 			}
 		} else {
-			//log.Printf("File exists: %+v", file)
+			log.Printf("File exists: %+v", file)
 		}
 	}
 }
