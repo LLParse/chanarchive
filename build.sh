@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash -e
 
 echo "package version" > "version/version.ignore.go"
 echo "" >> "version/version.ignore.go"

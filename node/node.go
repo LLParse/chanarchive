@@ -16,7 +16,6 @@ import (
 	"flag"
 	"net/http"
 	"fmt"
-	"errors"
 )
 
 type Node struct {
@@ -259,20 +258,30 @@ func (n *Node) topologyWatcher() {
 	// end coordination stuff
 }
 
-func (n *Node) acquireBoardLock(board string, ttl time.Duration) error {
-	path := fmt.Sprintf(boardLock, n.Config.ClusterName, board)
-	setopt := &etcd.SetOptions{TTL: ttl}
-	resp, err := n.Keys.Get(context.Background(), path, nil)
-	// Acquire lock
-	if err != nil && (err.(etcd.Error)).Code == etcd.ErrorCodeKeyNotFound {
-		_, err = n.Keys.Set(context.Background(), path, n.Id, setopt)
-	// Refresh held lock
-	} else if resp.Node.Value == n.Id {
-		_, err = n.Keys.Set(context.Background(), path, n.Id, setopt)
-	// Lock held by other node
-	} else {
-		err = errors.New(fmt.Sprintf("lock already exists on board %s", board))
+func (n *Node) acquireBoardLock(board string) error {
+	_, err := n.Keys.Set(
+		context.Background(),
+		fmt.Sprintf(boardLock, n.Config.ClusterName, board),
+		n.Id,
+		&etcd.SetOptions{TTL: boardLockTTL, PrevExist: etcd.PrevNoExist})
+
+	if err2, ok := err.(etcd.Error); ok && err2.Code == etcd.ErrorCodeNodeExist {
+		log.Printf("lock already held for board %s", board)
+	} else if err != nil {
+		log.Println(err)
 	}
+
+	return err
+}
+
+func (n *Node) refreshBoardLock(board string) error {
+	// can't do a refresh with CaS with 2.3.7 (yet), so refreshless it is...
+	// https://github.com/coreos/etcd/issues/5651
+	_, err := n.Keys.Set(
+		context.Background(),
+		fmt.Sprintf(boardLock, n.Config.ClusterName, board),
+		n.Id,
+		&etcd.SetOptions{TTL: boardLockTTL, PrevValue: n.Id})
 	return err
 }
 
@@ -292,17 +301,15 @@ func (n *Node) getBoardLM(board string) int {
 	path := fmt.Sprintf(boardLM, n.Config.ClusterName, board)
 	resp, err = n.Keys.Get(context.Background(), path, nil)
 	if err != nil {
-		if (err.(etcd.Error)).Code != etcd.ErrorCodeKeyNotFound {
-			log.Fatal("error getting lastModified: ", err)
+		if err2, ok := err.(etcd.Error); ok && err2.Code == etcd.ErrorCodeKeyNotFound {
+			log.Printf("no lastModified set for board %s\n", board)			
 		} else {
-			log.Printf("no lastModified set for board %s\n", board)
+			log.Fatal("error getting lastModified: ", err)
 		}
-		return 0
 	} else {
 		lm, err = strconv.Atoi(resp.Node.Value)
 		if err != nil {
 			log.Print("error parsing lastModified: ", err)
-			return 0
 		}		
 	}
 	return lm
@@ -316,17 +323,15 @@ func (n *Node) setBoardLM(board string, lastModified int) {
 }
 
 func (n *Node) boardProcessor(board *fourchan.Board, threads chan<- *fourchan.ThreadInfo) {
-	lockTTL := 10 * time.Second
 	boardTicker := time.NewTicker(boardRefreshPeriod)
 	for _ = range boardTicker.C {
-		if err := n.acquireBoardLock(board.Board, lockTTL); err != nil {
-			log.Print(err)
+		if err := n.acquireBoardLock(board.Board); err != nil {
 			continue
 		}
-		lockTicker := time.NewTicker(lockTTL / 2)
+		lockTicker := time.NewTicker(boardLockTTL / 2)
 		go func() {
 			for _ = range lockTicker.C {
-				if err := n.acquireBoardLock(board.Board, lockTTL); err != nil {
+				if err := n.refreshBoardLock(board.Board); err != nil {
 					log.Fatal("couldn't refresh lock on board ", board.Board, ": ", err)
 				}
 			}
