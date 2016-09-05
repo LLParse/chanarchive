@@ -87,6 +87,8 @@ func (n *Node) statusServer() {
 		log.Println("Starting HTTP status server on port", n.Config.HttpPort)
 		http.HandleFunc("/status/", n.statusHandler)
 		http.HandleFunc("/commands/", n.commandHandler)
-		http.ListenAndServe(fmt.Sprintf(":%d", n.Config.HttpPort), nil)
+		go func() {
+			http.ListenAndServe(fmt.Sprintf(":%d", n.Config.HttpPort), nil)
+		}()
 	}
 }

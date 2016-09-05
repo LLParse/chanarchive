@@ -64,13 +64,11 @@ func ctrlc(stop chan<- bool) {
 func donode() {
 	stop := make(chan bool)
 	ctrlc(stop)
-	serverNode := node.NewNode(stop)
-	if e := serverNode.Bootstrap(); e != nil {
-		fmt.Println(e)
-		os.Exit(1)
-	}
+	n := node.NewNode(stop)
+	n.Bootstrap()
+	n.Start()
 	<-stop
-	serverNode.CleanShutdown()
+	n.CleanShutdown()
 	os.Exit(0)
 }
 

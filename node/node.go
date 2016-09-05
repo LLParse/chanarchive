@@ -36,11 +36,11 @@ type Node struct {
 	NodeCount        int
 	DivideMutex      sync.Mutex
 	Info             *NodeInfo
+	InfoJson         string
 	stop             chan<- bool
 }
 
 type NodeInfo struct {
-	Id        string `json:"id"`
 	Hostname  string `json:"hostname"`
 }
 
@@ -122,100 +122,92 @@ func NewNode(stop chan<- bool) *Node {
 	n.Keys = etcd.NewKeysAPI(c)
 	n.Shutdown = false
 	n.Closed = false
-	return n
-}
-
-func (n *Node) refreshNode() {
-	log.Print("Refreshing node ", n.Info.Id)
-	_, err := n.Keys.Set(
-		context.Background(),
-		fmt.Sprintf("/%s/nodes/%s", n.Config.ClusterName, n.Info.Id),
-		"",
-		&etcd.SetOptions{TTL: nodeLockTTL, Refresh: true})
-
-	if err != nil {
-		log.Fatalf("Couldn't refresh node %s", n.Info.Id)
-	}
-}
-
-func (n *Node) refreshNodeLoop() {
-	ticker := time.NewTicker(nodeLockTTL / 2)
-	for {
-		select {
-			case <-ticker.C:
-				n.refreshNode()
-		}
-	}
-}
-
-func (n *Node) Bootstrap() error {
-	log.Print("Bootstrap routine started")
-
-	n.Id = uuid.NewV4().String()
-	n.Info = &NodeInfo{n.Id, n.Config.Hostname}
-	nodeInfoJson, _ := json.Marshal(n.Info)
-	log.Printf("Creating node %s\n", n.Info.Id)
-
-	_, err := n.Keys.Set(
-		context.Background(),
-		fmt.Sprintf("/%s/nodes/%s", n.Config.ClusterName, n.Info.Id),
-		string(nodeInfoJson),
-		&etcd.SetOptions{TTL: nodeLockTTL})
-
-	if err != nil {
-		return err
-	}
-
-	log.Print("Bootstrap routine completed")
-
-	go n.refreshNodeLoop()
-	go n.topologyWatcher()
-
-	log.Print("Downloading boards list...")
-	n.Boards, err = fourchan.DownloadBoards(n.Config.OnlyBoards, n.Config.ExcludeBoards)
-	log.Printf("%+v", n.Boards)
-	if err != nil {
-		return err
-	}
-
-	go n.statusServer()
-
-	n.LMDelay = 2 * time.Second / time.Duration(len(n.Boards.Boards))
+	// TODO these chan sizes are rather arbitrary...
 	n.CThread = make(chan *fourchan.ThreadInfo, 4)
 	n.CPost = make(chan *fourchan.Post, 8)
 	n.CFile = make(chan *fourchan.File, 4)
+	return n
+}
 
+func (n *Node) Bootstrap() {
+	log.Print("Bootstrapping started")
+	n.writeNode()
+	n.refreshNode()
+	n.watchNodes()
+	n.downloadBoards()
+	n.statusServer()
+	log.Print("Bootstrapping completed")
+}
+
+func (n *Node) Start() {
 	n.startBoardRoutines()
 	n.startThreadRoutines()
 	n.startPostRoutines()
 	n.startFileRoutines()
-
-	return nil
 }
 
-func (n *Node) topologyWatcher() {
+func (n *Node) writeNode() {
+	n.Id = uuid.NewV4().String()
+	n.Info = &NodeInfo{n.Config.Hostname}
+	nodeInfoJson, _ := json.Marshal(n.Info)
+	n.InfoJson = string(nodeInfoJson)
+	log.Printf("Creating node %s\n", n.Id)
+
+	_, err := n.Keys.Set(
+		context.Background(),
+		fmt.Sprintf("/%s/nodes/%s", n.Config.ClusterName, n.Id),
+		n.InfoJson,
+		&etcd.SetOptions{TTL: nodeLockTTL})
+
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
+func (n *Node) refreshNode() {
+	ticker := time.NewTicker(nodeLockTTL / 2)
+	go func() {
+		for _ = range ticker.C {
+			log.Print("Refreshing node ", n.Id)
+		  // can't do a refresh with CaS with 2.3.7 (yet), so refreshless it is...
+		  // https://github.com/coreos/etcd/issues/5651
+			_, err := n.Keys.Set(
+				context.Background(),
+				fmt.Sprintf("/%s/nodes/%s", n.Config.ClusterName, n.Id),
+				n.InfoJson,
+				&etcd.SetOptions{TTL: nodeLockTTL})
+
+			if err != nil {
+				log.Fatalf("Couldn't refresh node %s", n.Id)
+			}
+		}
+	}()
+}
+
+func (n *Node) watchNodes() {
 	log.Println("Watching node topology for changes")
 
 	watcher := n.Keys.Watcher(
 		fmt.Sprintf("/%s/nodes", n.Config.ClusterName), 
 		&etcd.WatcherOptions{Recursive: true})
 
-	for {
-		resp, err := watcher.Next(context.Background())
-		if err != nil {
-			log.Print("watcher failed:", err)
-			continue
+	go func() {
+		for {
+			resp, err := watcher.Next(context.Background())
+			if err != nil {
+				log.Print("watcher failed:", err)
+				continue
+			}
+			log.Printf("node topology updated (%s)\n", resp.Action)
+			// TODO coordination
+			/*nodesKey := fmt.Sprintf("/%s/nodes", n.Config.ClusterName)
+			resp, err := n.Keys.Get(
+				context.Background(),
+				nodesKey,
+				&etcd.GetOptions{Recursive: true, Quorum: true})
+			}*/
 		}
-		log.Printf("node topology updated (%s)\n", resp.Action)
-	}
-	// coordination stuff
-	/*nodesKey := fmt.Sprintf("/%s/nodes", n.Config.ClusterName)
-	resp, err := n.Keys.Get(
-		context.Background(),
-		nodesKey,
-		&etcd.GetOptions{Recursive: true, Quorum: true})
-	}*/
-	// end coordination stuff
+	}()
 }
 
 func (n *Node) CleanShutdown() {

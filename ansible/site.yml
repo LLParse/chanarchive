@@ -1,9 +1,0 @@
-# Defines deployment design
-
-- hosts: chan
-  sudo: True
-  roles:
-    - etcd
-
-#    - common
-#    - cassandra

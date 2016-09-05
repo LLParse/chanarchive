@@ -18,6 +18,14 @@ const (
   boardRefreshPeriod = 5 * time.Second
 )
 
+func (n *Node) downloadBoards() {
+  log.Print("Downloading boards list...")
+  var err error
+  if n.Boards, err = fourchan.DownloadBoards(n.Config.OnlyBoards, n.Config.ExcludeBoards); err != nil {
+    log.Fatal(err)
+  }
+}
+
 func (n *Node) startBoardRoutines() {
   numBoards := len(n.Boards.Boards)
 
@@ -81,12 +89,9 @@ func (n *Node) boardProcessor(board *fourchan.Board, threads chan<- *fourchan.Th
           }
         }
       }
-      if board.LM == newLastModified {
-        time.Sleep(n.LMDelay)
-        //log.Printf("board %s didn't change", board.Board)
-      } else {
+      if board.LM != newLastModified {
         board.LM = newLastModified
-        n.setBoardLastModified(board.Board, board.LM)
+        n.setBoardLastModified(board.Board, newLastModified)
       }
     } else if statusCode != 304 {
       log.Print("Error downloading board ", board.Board, " ", e)
