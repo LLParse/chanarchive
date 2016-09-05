@@ -60,6 +60,7 @@ type NodeConfig struct {
 	ThreadWorkers int
 	HttpPort      int
 	NoFiles       bool
+	Verbose       bool
 }
 
 const (
@@ -94,6 +95,7 @@ func parseFlags() *NodeConfig {
 	flag.StringVar(&(c.ClusterName),   "clustername",   "streamingchan",         "Node : Cluster name")
 	flag.IntVar(   &(c.HttpPort),      "httpport",      3333,                    "Node : Host for HTTP Server for serving stats. 0 for disabled.")
 	flag.BoolVar(  &(c.NoFiles),       "nofiles",       false,                   "Node : Don't download files")
+	flag.BoolVar(  &(c.Verbose),       "verbose",       false,                   "Node : Verbose logging")
 	flag.Parse()
 
 	c.EtcdEndpoints = strings.Split(*etcdEndpoints, ",")
@@ -266,7 +268,9 @@ func (n *Node) acquireBoardLock(board string) error {
 		&etcd.SetOptions{TTL: boardLockTTL, PrevExist: etcd.PrevNoExist})
 
 	if err2, ok := err.(etcd.Error); ok && err2.Code == etcd.ErrorCodeNodeExist {
-		log.Printf("lock already held for board %s", board)
+		if n.Config.Verbose {
+			log.Printf("lock already held for board %s", board)
+		}
 	} else if err != nil {
 		log.Println(err)
 	}
@@ -425,7 +429,7 @@ func (n *Node) fileProcessor(files <-chan *fourchan.File) {
 			} else {
 				log.Printf("Error downloading file %+v: %+v", file, err)
 			}
-		} else {
+		} else if n.Verbose {
 			log.Printf("File exists: %+v", file)
 		}
 	}
