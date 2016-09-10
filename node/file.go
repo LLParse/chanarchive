@@ -14,7 +14,7 @@ import (
 const (
   fileInfoPath = "/%s/files/%d/info"
   fileLockPath = "/%s/files/%d/lock"
-  numFileRoutines = 4
+  numFileRoutines = 1
 )
 
 func (n *Node) startFileRoutines() {

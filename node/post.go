@@ -30,7 +30,7 @@ func (n *Node) postProcessor() {
           Ext: post.Ext,
           FSize: post.FSize,
         }
-        n.writeFileInfo(*file)
+        //n.writeFileInfo(*file)
         n.CFile <- file
       }
     case <-n.stop:
