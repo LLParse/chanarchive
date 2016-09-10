@@ -63,7 +63,7 @@ func (n *Node) commandHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	if strings.Contains(r.URL.Path, "/commands/stop") {
-		go func() { n.stop <- true }()
+		n.stop <- true
 		p := map[string]interface{}{
 			"ok":      1,
 			"message": "Stop command sent, check logs",

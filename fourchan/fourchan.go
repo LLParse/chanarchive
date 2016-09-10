@@ -84,24 +84,6 @@ func DownloadBoards(only []string, exclude []string) (*Boards, error) {
 	}
 }
 
-func DownloadThread(board string, thread int) (*Thread, error) {
-	url := fmt.Sprintf("http://api.4chan.org/%s/res/%d.json", board, thread)
-	if data, _, _, _, err := EasyGet(url, time.Time{}); err == nil {
-		var t *Thread
-		if err := json.Unmarshal(data, t); err == nil {
-			t.No = thread
-			for idx, _ := range t.Posts {
-				t.Posts[idx].Board = board
-			}
-			return t, nil
-		} else {
-			return t, err
-		}
-	} else {
-		return &Thread{}, err
-	}
-}
-
 func DownloadFile(board string, tim int64, ext string) ([]byte, error) {
 	req, _ := http.NewRequest("GET", fmt.Sprintf("http://i.4cdn.org/%s/%d%s", board, tim, ext), nil)
 	req.Header.Add("User-Agent", USER_AGENT)

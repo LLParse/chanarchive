@@ -18,6 +18,7 @@ import (
 
 type Node struct {
 	Id               string
+	Lock             *EtcdLock
 	Stats            *NodeStats
 	Boards           *fourchan.Boards
 	Storage          *fourchan.Storage
@@ -37,7 +38,9 @@ type Node struct {
 	DivideMutex      sync.Mutex
 	Info             *NodeInfo
 	InfoJson         string
-	stop             chan<- bool
+	stop             chan bool
+	Files            map[int]string
+	FileMutex        sync.Mutex
 }
 
 type NodeInfo struct {
@@ -104,7 +107,7 @@ func parseFlags() *NodeConfig {
 	return c
 }
 
-func NewNode(stop chan<- bool) *Node {
+func NewNode(stop chan bool) *Node {
 	n := new(Node)
 	n.stop = stop
 	n.Stats = NewNodeStats()
@@ -123,16 +126,33 @@ func NewNode(stop chan<- bool) *Node {
 	n.Shutdown = false
 	n.Closed = false
 	// TODO these chan sizes are rather arbitrary...
+	n.CBoard = make(chan *fourchan.Board, 2)
 	n.CThread = make(chan *fourchan.Thread, 4)
 	n.CPost = make(chan *fourchan.Post, 8)
 	n.CFile = make(chan *fourchan.File, 4)
+  n.Files = make(map[int]string)
+
 	return n
 }
 
 func (n *Node) Bootstrap() {
 	log.Print("Bootstrapping started")
-	n.writeNode()
-	n.refreshNode()
+
+	n.Id = uuid.NewV4().String()
+	n.Info = &NodeInfo{n.Config.Hostname}
+	
+	nodeInfoJson, _ := json.Marshal(n.Info)
+	n.InfoJson = string(nodeInfoJson)
+
+  n.Lock = n.NewEtcdLock(
+    fmt.Sprintf("/%s/nodes/%s", n.Config.ClusterName, n.Id),
+    n.InfoJson,
+    boardLockTTL)
+
+  if err := n.Lock.Acquire(); err != nil {
+  	log.Fatal(err)
+  }
+
 	n.watchNodes()
 	n.downloadBoards()
 	n.statusServer()
@@ -144,44 +164,6 @@ func (n *Node) Start() {
 	n.startThreadRoutines()
 	n.startPostRoutines()
 	n.startFileRoutines()
-}
-
-func (n *Node) writeNode() {
-	n.Id = uuid.NewV4().String()
-	n.Info = &NodeInfo{n.Config.Hostname}
-	nodeInfoJson, _ := json.Marshal(n.Info)
-	n.InfoJson = string(nodeInfoJson)
-	log.Printf("Creating node %s\n", n.Id)
-
-	_, err := n.Keys.Set(
-		context.Background(),
-		fmt.Sprintf("/%s/nodes/%s", n.Config.ClusterName, n.Id),
-		n.InfoJson,
-		&etcd.SetOptions{TTL: nodeLockTTL})
-
-	if err != nil {
-		log.Fatal(err)
-	}
-}
-
-func (n *Node) refreshNode() {
-	ticker := time.NewTicker(nodeLockTTL / 2)
-	go func() {
-		for _ = range ticker.C {
-			log.Print("Refreshing node ", n.Id)
-		  // can't do a refresh with CaS with 2.3.7 (yet), so refreshless it is...
-		  // https://github.com/coreos/etcd/issues/5651
-			_, err := n.Keys.Set(
-				context.Background(),
-				fmt.Sprintf("/%s/nodes/%s", n.Config.ClusterName, n.Id),
-				n.InfoJson,
-				&etcd.SetOptions{TTL: nodeLockTTL})
-
-			if err != nil {
-				log.Fatalf("Couldn't refresh node %s", n.Id)
-			}
-		}
-	}()
 }
 
 func (n *Node) watchNodes() {
@@ -199,13 +181,6 @@ func (n *Node) watchNodes() {
 				continue
 			}
 			log.Printf("node topology updated (%s)\n", resp.Action)
-			// TODO coordination
-			/*nodesKey := fmt.Sprintf("/%s/nodes", n.Config.ClusterName)
-			resp, err := n.Keys.Get(
-				context.Background(),
-				nodesKey,
-				&etcd.GetOptions{Recursive: true, Quorum: true})
-			}*/
 		}
 	}()
 }
@@ -238,4 +213,5 @@ func (n *Node) CleanShutdown() {
 		timeout <- true
 	}()
 	<-timeout
+	n.Lock.Release()
 }

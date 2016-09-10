@@ -1,3 +1,5 @@
+ALTER KEYSPACE system_auth WITH replication = {'class': 'SimpleStrategy', 'replication_factor': '2'};
+
 CREATE KEYSPACE IF NOT EXISTS chan WITH replication = {'class': 'SimpleStrategy', 'replication_factor': '2'}  AND durable_writes = true;
 
 CREATE TABLE IF NOT EXISTS chan.thread (
