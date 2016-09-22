@@ -38,7 +38,7 @@ func (l *EtcdLock) Acquire() error {
     log.Print("lock already held: ", l.path)
   }
   if err == nil {
-    log.Print("lock acquired: ", l.path)
+    //log.Print("lock acquired: ", l.path)
     l.ticker = time.NewTicker(l.ttl / 2)
     go l.refresh()
   }
@@ -50,21 +50,26 @@ func (l *EtcdLock) refresh() {
   for {
     select {
     case <-l.ticker.C:
-      _, err := l.keys.Set(
-        context.Background(),
-        l.path,
-        "",
-        &etcd.SetOptions{
-          TTL: l.ttl,
-          PrevValue: l.owner,
-          Refresh: true,
-        })
-      if err != nil {
+      for _, err := l.keys.Set(
+          context.Background(),
+          l.path,
+          "",
+          &etcd.SetOptions{
+            TTL: l.ttl,
+            PrevValue: l.owner,
+            Refresh: true,
+          }); err != nil; {
+
         log.Print("lock NOT refreshed: ", l.path)
         log.Print(err)
-      } else {
-        log.Print("lock refreshed: ", l.path)
+        time.Sleep(2 * time.Second)
+
+        if err2, ok := err.(etcd.Error); ok && err2.Code == etcd.ErrorCodeKeyNotFound {
+          l.Acquire()
+          return
+        }
       }
+      //log.Print("lock refreshed: ", l.path)
     case <-l.stop:
       return
     }
@@ -73,10 +78,12 @@ func (l *EtcdLock) refresh() {
 
 func (l *EtcdLock) Release() {
   l.stop <- true
-  if _, err := l.keys.Delete(context.Background(), l.path, nil); err != nil {
+
+  for _, err := l.keys.Delete(context.Background(), l.path, nil); err != nil; {
     log.Printf("lock NOT released: ", l.path)
     log.Println(err)
-  } else {
-    log.Print("lock released: ", l.path)
+    time.Sleep(2 * time.Second)
   }
+  
+  //log.Print("lock released: ", l.path)
 }

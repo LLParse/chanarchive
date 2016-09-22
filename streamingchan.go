@@ -66,9 +66,7 @@ func donode() {
 	ctrlc(stop)
 	n := node.NewNode(stop)
 	n.Bootstrap()
-	n.Start()
-	<-stop
-	n.CleanShutdown()
+	n.Run()
 	os.Exit(0)
 }
 

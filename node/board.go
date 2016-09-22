@@ -5,6 +5,7 @@ import (
   "fmt"
   "log"
   "net/http"
+  "sync"
   "time"
   etcd "github.com/coreos/etcd/client"
   "github.com/llparse/streamingchan/fourchan"
@@ -15,9 +16,6 @@ const (
   boardStatePath = "/%s/boards/%s/state"
   boardLockPath = "/%s/boards/%s/lock"
   boardLastModifiedPath = "/%s/boards/%s/lm"
-  boardLockTTL = 15 * time.Second
-  // >1 useless because one routine wins writing to the chan
-  numBoardRoutines = 1
 )
 
 func (n *Node) downloadBoards() {
@@ -28,13 +26,15 @@ func (n *Node) downloadBoards() {
   }
 }
 
-func (n *Node) startBoardRoutines() {
+func (n *Node) startBoardRoutines(processors *sync.WaitGroup) {
+  defer processors.Done()
+
   numBoards := len(n.Boards.Boards)
 
   if numBoards == 0 {
     log.Fatal("No boards to process")
   } else {
-    log.Printf("Starting %d board routines", numBoards)
+    log.Printf("Starting %d board routines", numBoardRoutines)
   }
 
   go func () {
@@ -46,24 +46,37 @@ func (n *Node) startBoardRoutines() {
   go func() {
     boardIndex := 0
     for {
-      n.CBoard <- n.Boards.Boards[boardIndex]
       //log.Print("Wrote board ", n.Boards.Boards[boardIndex].Board, " to chan")
       select {
-      case <-n.stop:
-        return
-      default:
+      case n.CBoard <- n.Boards.Boards[boardIndex]:
         boardIndex += 1
         boardIndex %= numBoards
+      case <-n.stop:
+        log.Print("Stopped marking boards for processing.")
+        for ; len(n.CBoard) > 0; {
+          <-n.CBoard
+        }
+        n.stopBoard <- true
+        return
+      default:
+        time.Sleep(1 * time.Second)
       }
     }
   }()
 
+  var wg sync.WaitGroup
+  wg.Add(numBoardRoutines)
   for i := 0; i < numBoardRoutines; i++ {
-    go n.boardProcessor()
+    go n.boardProcessor(&wg)
   }
+  wg.Wait()
+  log.Print("Board routines finished, closing chan.")
+  close(n.CBoard)
+  n.stopThread <- true
 }
 
-func (n *Node) boardProcessor() {
+func (n *Node) boardProcessor(wg *sync.WaitGroup) {
+  defer wg.Done()
   for {
     select {
     case board := <-n.CBoard:
@@ -92,11 +105,12 @@ func (n *Node) boardProcessor() {
       // FIXME waitGroup for threads to complete 
       boardLock.Release()
 
-    case <-n.stop:
+    case <-n.stopBoard:
+      n.stopBoard <- true
+      //log.Print("Board routine stopped")
       return
     }
   }
-  log.Println("Board processor terminated")
 }
 
 func (n *Node) DownloadBoard(board string, lastModified time.Time) ([]*fourchan.Thread, int, string, error) {
@@ -137,7 +151,7 @@ func (n *Node) setBoardState(board string, state string) {
 }
 
 func (n *Node) getBoardLastModified(board string) time.Time {
-  log.Print("get board ", board, " last modified")
+  //log.Print("get board ", board, " last modified")
   var resp *etcd.Response
   var err error
   lm := time.Unix(0, 0)
@@ -160,7 +174,7 @@ func (n *Node) getBoardLastModified(board string) time.Time {
 }
 
 func (n *Node) setBoardLastModified(board string, lastModified time.Time) {
-  log.Print("set board ", board, " last modified ", lastModified)
+  //log.Print("set board ", board, " last modified ", lastModified)
   if _, err := n.Keys.Set(
       context.Background(),
       fmt.Sprintf(boardLastModifiedPath, n.Config.ClusterName, board),

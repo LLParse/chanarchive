@@ -2,21 +2,21 @@ etcd:
   image: rancher/etcd:v2.3.7-9
   labels:
     io.rancher.container.pull_image: always
-    io.rancher.scheduler.affinity:container_label_soft_ne: io.rancher.stack_service.name=$${stack_name}/$${service_name}
+    io.rancher.scheduler.affinity:container_label_ne: io.rancher.stack_service.name=$${stack_name}/$${service_name}
     io.rancher.scheduler.affinity:host_label_soft: etcd=true
-    io.rancher.scheduler.affinity:host_label_soft_ne: cassandra=true
   environment:
     RANCHER_DEBUG: 'true'
-    BACKUP_PERIOD: 15m
-    BACKUP_RETENTION: 24h
     EMBEDDED_BACKUPS: 'false'
 cassandra:
   image: llparse/cassandra:v3.7
   labels:
     io.rancher.container.pull_image: always
-    io.rancher.scheduler.affinity:container_label_soft_ne: io.rancher.stack_service.name=$${stack_name}/$${service_name}
-    io.rancher.scheduler.affinity:host_label_soft: cassandra=true
-    io.rancher.scheduler.affinity:host_label_soft_ne: etcd=true
+    io.rancher.scheduler.global: true
+    io.rancher.sidekicks: node,api
+  links:
+  - etcd
+  ports:
+  - 4000:4000/tcp
   environment:
     RANCHER_DEBUG: 'true'
     CASSANDRA_CLUSTER_NAME: streamingchan
@@ -26,35 +26,23 @@ node:
   image: llparse/streamingchan:v1.0
   command: >
     -node
-    -cassandra cassandra
+    -cassandra 127.0.0.1
     -clustername streamingchan
-    -etcd http://etcd:2379
+    -etcd http://$${stack_name}_etcd_1:2379,http://$${stack_name}_etcd_2:2379,http://$${stack_name}_etcd_3:2379
     -httpport 3333
     -keyspace chan
     -tw ${THREAD_WORKERS}
     ${NODE_ARGS}
   labels:
     io.rancher.container.pull_image: always
-    io.rancher.scheduler.affinity:host_label_soft_ne: cassandra=true,etcd=true
-    io.rancher.scheduler.affinity:container_label_soft_ne: io.rancher.stack_service.name=$${stack_name}/$${service_name}
-  links:
-  - etcd
-  - cassandra
 api:
   image: llparse/streamingchan:v1.0
   command: >
     -api
-    -cassandra cassandra
+    -cassandra 127.0.0.1
     -clustername streamingchan
-    -etcd http://etcd:2379
+    -etcd http://$${stack_name}_etcd_1:2379,http://$${stack_name}_etcd_2:2379,http://$${stack_name}_etcd_3:2379
     -httpport 4000
     -keyspace chan
   labels:
     io.rancher.container.pull_image: always
-    io.rancher.scheduler.affinity:host_label_soft_ne: cassandra=true,etcd=true
-    io.rancher.scheduler.affinity:container_label_ne: io.rancher.stack_service.name=$${stack_name}/$${service_name}
-  ports:
-  - 4000:4000/tcp
-  links:
-  - etcd
-  - cassandra

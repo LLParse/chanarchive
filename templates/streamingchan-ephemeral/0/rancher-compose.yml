@@ -8,36 +8,12 @@
     required: true
     default: 3
     type: int
-  - variable: NUM_CASS
-    description: Desired number of Cassandra nodes
-    label: Cassandra Scale
-    required: true
-    default: 3
-    type: int
-  - variable: HEAP_NEWSIZE
-    description: The initial heap size of the Cassandra JVM
-    label: Cassandra Initial Heap
-    required: true
-    default: 1G
-    type: string
   - variable: MAX_HEAP_SIZE
     description: The maximum heap size of the Cassandra JVM
     label: Cassandra Max Heap
     required: true
-    default: 1G
+    default: 2G
     type: string
-  - variable: NUM_NODE
-    description: Desired number of 4Chan archiver nodes
-    label: Node Scale
-    required: true
-    default: 1
-    type: int
-  - variable: THREAD_WORKERS
-    description: Number of worker threads to spawn for nodes
-    label: Thread Workers
-    required: true
-    default: 10
-    type: int
   - variable: NODE_ARGS
     description: Any other node arguments
     label: Node Arguments
@@ -55,25 +31,24 @@ etcd:
     healthy_threshold: 1
     unhealthy_threshold: 2
 cassandra:
-  scale: ${NUM_CASS}
   health_check:
     port: 9042
     interval: 5000
     response_timeout: 3000
     healthy_threshold: 1
     unhealthy_threshold: 2
-node:
-  scale: ${NUM_NODE}
-  health_check:
-    port: 3333
-    interval: 5000
-    response_timeout: 3000
-    healthy_threshold: 1
-    unhealthy_threshold: 2
-api:
-  health_check:
-    port: 4000
-    interval: 5000
-    response_timeout: 3000
-    healthy_threshold: 1
-    unhealthy_threshold: 2
+# Can we _please_ implement sidekick health checks???
+#node:
+#  health_check:
+#    port: 3333
+#    interval: 5000
+#    response_timeout: 3000
+#    healthy_threshold: 1
+#    unhealthy_threshold: 2
+#api:
+#  health_check:
+#    port: 4000
+#    interval: 5000
+#    response_timeout: 3000
+#    healthy_threshold: 1
+#    unhealthy_threshold: 2

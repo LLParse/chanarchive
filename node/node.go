@@ -8,7 +8,6 @@ import (
 	"github.com/satori/go.uuid"
 	"log"
 	"os"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -30,7 +29,6 @@ type Node struct {
 	CPost            chan *fourchan.Post
 	CFile            chan *fourchan.File
 	BoardStop        []chan bool
-	Shutdown         bool
 	Closed           bool
 	OwnedBoards      []string
 	LastNodeIdx      int
@@ -39,6 +37,10 @@ type Node struct {
 	Info             *NodeInfo
 	InfoJson         string
 	stop             chan bool
+	stopBoard        chan bool
+	stopThread       chan bool
+	stopPost         chan bool
+	stopFile         chan bool
 	Files            map[int]string
 	FileMutex        sync.Mutex
 }
@@ -65,17 +67,13 @@ type NodeConfig struct {
 }
 
 const (
-	nodeLockTTL = 30 * time.Second
+	nodeLockTTL = 60 * time.Second
+  boardLockTTL = 20 * time.Second
+  numBoardRoutines = 1
+  numThreadRoutines = 4
+  numPostRoutines = 32
+  numFileRoutines = 8
 )
-
-func (n *Node) Close() {
-	n.Closed = true
-	close(n.CBoard)
-	close(n.CThread)
-	close(n.CPost)
-	close(n.CFile)
-	n.Storage.Close()
-}
 
 func parseFlags() *NodeConfig {
 	c := new(NodeConfig)
@@ -110,26 +108,29 @@ func parseFlags() *NodeConfig {
 func NewNode(stop chan bool) *Node {
 	n := new(Node)
 	n.stop = stop
+	n.stopBoard = make(chan bool, 2)
+	n.stopThread = make(chan bool, 2)
+	n.stopPost = make(chan bool, 2)
+	n.stopFile = make(chan bool, 2)
 	n.Stats = NewNodeStats()
 	n.Config = parseFlags()
 	n.Storage = fourchan.NewStorage(n.Config.CassKeyspace, n.Config.CassEndpoints...)
 	cfg := etcd.Config {
 		Endpoints:               n.Config.EtcdEndpoints,
 		Transport:               etcd.DefaultTransport,
-		HeaderTimeoutPerRequest: time.Second,
+		HeaderTimeoutPerRequest: 3 * time.Second,
 	}
 	c, err := etcd.New(cfg)
 	if err != nil {
 		log.Fatal("Failed to connected to etcd: ", err)
 	}
 	n.Keys = etcd.NewKeysAPI(c)
-	n.Shutdown = false
 	n.Closed = false
 	// TODO these chan sizes are rather arbitrary...
-	n.CBoard = make(chan *fourchan.Board, 2)
-	n.CThread = make(chan *fourchan.Thread, 4)
-	n.CPost = make(chan *fourchan.Post, 8)
-	n.CFile = make(chan *fourchan.File, 4)
+	n.CBoard = make(chan *fourchan.Board, numBoardRoutines)
+	n.CThread = make(chan *fourchan.Thread, numThreadRoutines)
+	n.CPost = make(chan *fourchan.Post, numPostRoutines)
+	n.CFile = make(chan *fourchan.File, numFileRoutines)
   n.Files = make(map[int]string)
 
 	return n
@@ -147,7 +148,7 @@ func (n *Node) Bootstrap() {
   n.Lock = n.NewEtcdLock(
     fmt.Sprintf("/%s/nodes/%s", n.Config.ClusterName, n.Id),
     n.InfoJson,
-    boardLockTTL)
+    nodeLockTTL)
 
   if err := n.Lock.Acquire(); err != nil {
   	log.Fatal(err)
@@ -159,11 +160,17 @@ func (n *Node) Bootstrap() {
 	log.Print("Bootstrapping completed")
 }
 
-func (n *Node) Start() {
-	n.startBoardRoutines()
-	n.startThreadRoutines()
-	n.startPostRoutines()
-	n.startFileRoutines()
+func (n *Node) Run() {
+	var wg sync.WaitGroup
+	wg.Add(4)
+	go n.startBoardRoutines(&wg)
+	go n.startThreadRoutines(&wg)
+	go n.startPostRoutines(&wg)
+	go n.startFileRoutines(&wg)
+	wg.Wait()
+	
+	log.Print("All routines finished, shutting down.")
+	n.Shutdown()
 }
 
 func (n *Node) watchNodes() {
@@ -185,33 +192,9 @@ func (n *Node) watchNodes() {
 	}()
 }
 
-func (n *Node) CleanShutdown() {
-	if n.Shutdown {
-		return
-	}
-	n.Shutdown = true
+func (n *Node) Shutdown() {
+	n.Storage.Close()
 	log.Print("Removing node from cluster.")
-	// TODO remove node from cluster
-	timeout := make(chan bool, 1)
-	go func() {
-		time.Sleep(120 * time.Second)
-		if false {
-			log.Print("Timeout waiting for sockets.")
-			stack := make([]byte, 262144)
-			runtime.Stack(stack, true)
-			log.Print("----------- DUMP STACK CALLED ----------------")
-			log.Print("\n", string(stack))
-		}
-		timeout <- true
-	}()
-	go func() {
-		log.Print("Closing...")
-		n.Close()
-		log.Print("Wait for routines to finish...")
-		// TODO: wait group(s)?
-		log.Print("Shut down node.")
-		timeout <- true
-	}()
-	<-timeout
 	n.Lock.Release()
+	log.Print("Shut down complete.")
 }

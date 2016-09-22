@@ -6,6 +6,7 @@ import (
   "log"
   "strconv"
   "strings"
+  "sync"
   "github.com/llparse/streamingchan/fourchan"
   etcd "github.com/coreos/etcd/client"
   "golang.org/x/net/context"
@@ -14,20 +15,27 @@ import (
 const (
   fileInfoPath = "/%s/files/%d/info"
   fileLockPath = "/%s/files/%d/lock"
-  numFileRoutines = 1
 )
 
-func (n *Node) startFileRoutines() {
+func (n *Node) startFileRoutines(processors *sync.WaitGroup) {
+  defer processors.Done()
+
   n.loadFiles()
   go n.fileWatcher()
 
-  log.Printf("Starting %d file processors", numFileRoutines)
+  log.Printf("Starting %d file routines", numFileRoutines)
+  var wg sync.WaitGroup
   for i := 0; i < numFileRoutines; i++ {
-    go n.fileProcessor()
+    wg.Add(1)
+    go n.fileProcessor(&wg)
   }
+  wg.Wait()
+  log.Print("File routines finished, closing chan.")
+  close(n.CFile)
 }
 
-func (n *Node) fileProcessor() {
+func (n *Node) fileProcessor(wg *sync.WaitGroup) {
+  defer wg.Done()
   for {
     select {
     case file := <-n.CFile:
@@ -39,15 +47,20 @@ func (n *Node) fileProcessor() {
       if !n.Storage.FileExists(file) {
         data, err := fourchan.DownloadFile(file.Board, file.Tim, file.Ext)
         if err == nil {
+          if len(data) <= 0 {
+            log.Printf("Error: data length is %d", len(data))
+          }
           file.Data = data
           n.Storage.WriteFile(file)
         } else {
           log.Printf("Error downloading file %+v: %+v", file, err)
         }
-      } else if n.Config.Verbose {
-        log.Printf("File exists: %+v", file)
+      } else {
+        //log.Printf("File exists: %+v", file)
       }
-    case <-n.stop:
+    case <-n.stopFile:
+      n.stopFile <- true
+      //log.Print("File routine stopped")
       return
     }
   }
