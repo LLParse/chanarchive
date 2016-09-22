@@ -21,7 +21,7 @@ cassandra:
   - 4000:4000/tcp
   environment:
     RANCHER_DEBUG: 'true'
-    CASSANDRA_CLUSTER_NAME: chanarchive
+    CASSANDRA_CLUSTER_NAME: ${CLUSTER_NAME}
     HEAP_NEWSIZE: ${MAX_HEAP_SIZE}
     MAX_HEAP_SIZE: ${MAX_HEAP_SIZE}
   volumes:

@@ -26,6 +26,12 @@
     required: true
     default: etcd
     type: string
+  - variable: CLUSTER_NAME
+    description: Name for the Cassandra cluster. This must match an old deployment name
+    label: Cassandra Cluster Name
+    required: true
+    default: chanarchive
+    type: string
   - variable: NODE_ARGS
     description: Any other node arguments
     label: Node Arguments
