@@ -42,7 +42,7 @@
     description: Any other node arguments
     label: Node Arguments
     required: false
-    default: "-onlyboards g,vp"
+    default: "-excludeboards aco,his,qst,trash,wsr"
     type: string
 etcd:
   retain_ip: true
