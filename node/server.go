@@ -3,7 +3,7 @@ package node
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/llparse/streamingchan/version"
+	"github.com/llparse/chanarchive/version"
 	"log"
 	"net/http"
 	"os"

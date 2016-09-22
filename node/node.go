@@ -4,7 +4,7 @@ import (
 	"encoding/json"
   "golang.org/x/net/context"
   etcd "github.com/coreos/etcd/client"
-	"github.com/llparse/streamingchan/fourchan"
+	"github.com/llparse/chanarchive/fourchan"
 	"github.com/satori/go.uuid"
 	"log"
 	"os"
@@ -87,7 +87,7 @@ func parseFlags() *NodeConfig {
 	flag.StringVar(&(c.Hostname),      "hostname",      hostname,                "Node : Hostname or ip, visible from other machines on the network. ")
 	flag.StringVar(&(c.BindIp),        "bindip",        "127.0.0.1",             "Node : Address to bind to.")
 	flag.StringVar(&(c.CassKeyspace),  "keyspace",      "chan",                  "Node : Cassandra keyspace")
-	flag.StringVar(&(c.ClusterName),   "clustername",   "streamingchan",         "Node : Cluster name")
+	flag.StringVar(&(c.ClusterName),   "clustername",   "chanarchive",         "Node : Cluster name")
 	flag.IntVar(   &(c.HttpPort),      "httpport",      3333,                    "Node : Host for HTTP Server for serving stats. 0 for disabled.")
 	flag.BoolVar(  &(c.NoFiles),       "nofiles",       false,                   "Node : Don't download files")
 	flag.BoolVar(  &(c.Verbose),       "verbose",       false,                   "Node : Verbose logging")

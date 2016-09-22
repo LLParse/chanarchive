@@ -3,7 +3,7 @@ package node
 import (
   "log"
   "sync"
-  "github.com/llparse/streamingchan/fourchan"
+  "github.com/llparse/chanarchive/fourchan"
 )
 
 func (n *Node) startPostRoutines(processors *sync.WaitGroup) {

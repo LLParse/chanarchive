@@ -7,16 +7,16 @@ import (
 	"os/signal"
 	"runtime"
 	"time"
-	"github.com/llparse/streamingchan/api"
-	"github.com/llparse/streamingchan/node"
-	"github.com/llparse/streamingchan/version"
+	"github.com/llparse/chanarchive/api"
+	"github.com/llparse/chanarchive/node"
+	"github.com/llparse/chanarchive/version"
 )
 
 func main() {
 	rand.Seed(time.Now().UTC().UnixNano())
 	runtime.GOMAXPROCS(runtime.NumCPU())
 	fmt.Print("\n")
-	fmt.Print(":: StreamingChan - 4Chan Streaming API :: \n")
+	fmt.Print(":: ChanArchive - 4Chan API Archiver :: \n")
 	fmt.Print("\n")
 
 	fmt.Printf("Version - %s\n", version.GitHash)

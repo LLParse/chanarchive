@@ -6,7 +6,7 @@ import (
   "log"
   "sync"
   "time"
-  "github.com/llparse/streamingchan/fourchan"
+  "github.com/llparse/chanarchive/fourchan"
 )
 
 func (n *Node) startThreadRoutines(processors *sync.WaitGroup) {

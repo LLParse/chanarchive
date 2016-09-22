@@ -7,7 +7,7 @@ import (
   "strconv"
   "strings"
   "sync"
-  "github.com/llparse/streamingchan/fourchan"
+  "github.com/llparse/chanarchive/fourchan"
   etcd "github.com/coreos/etcd/client"
   "golang.org/x/net/context"
 )

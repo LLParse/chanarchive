@@ -1,0 +1,5 @@
+name: ChanArchive [Persistent]
+description: |
+  A distributed api designed to archive the 4Chan API
+version: 1.0
+category: Scrapers

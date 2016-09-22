@@ -11,9 +11,9 @@ echo "}" >> "version/version.ignore.go"
 #go build
 
 # Build linux binary
-docker build -t streamingchan -f Dockerfile.build .
-docker run --rm -v "$PWD":/go/src/github.com/llparse/streamingchan -w /go/src/github.com/llparse/streamingchan streamingchan go build -v
+docker build -t chanarchive -f Dockerfile.build .
+docker run --rm -v "$PWD":/go/src/github.com/llparse/chanarchive -w /go/src/github.com/llparse/chanarchive chanarchive go build -v
 
 # Create lightweight container
-docker build -t llparse/streamingchan:v1.0 .
-docker push llparse/streamingchan:v1.0
+docker build -t llparse/chanarchive:v1.0 .
+docker push llparse/chanarchive:v1.0

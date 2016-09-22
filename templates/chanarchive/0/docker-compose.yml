@@ -21,18 +21,18 @@ cassandra:
   - 4000:4000/tcp
   environment:
     RANCHER_DEBUG: 'true'
-    CASSANDRA_CLUSTER_NAME: streamingchan
+    CASSANDRA_CLUSTER_NAME: chanarchive
     HEAP_NEWSIZE: ${MAX_HEAP_SIZE}
     MAX_HEAP_SIZE: ${MAX_HEAP_SIZE}
   volumes:
   - ${CASS_VOLUME_MOUNT}:/var/lib/cassandra
 node:
-  image: llparse/streamingchan:v1.0
+  image: llparse/chanarchive:v1.0
   command: >
     -node
     -cassandra 127.0.0.1
-    -clustername streamingchan
-    -etcd http://$${stack_name}_etcd_1:2379,http://$${stack_name}_etcd_2:2379,http://$${stack_name}_etcd_3:2379
+    -clustername chanarchive
+    -etcd http://chanarchive_etcd_1:2379,http://chanarchive_etcd_2:2379,http://chanarchive_etcd_3:2379
     -httpport 3333
     -keyspace chan
     ${NODE_ARGS}
@@ -40,12 +40,12 @@ node:
     io.rancher.container.pull_image: always
   net: container:cassandra
 api:
-  image: llparse/streamingchan:v1.0
+  image: llparse/chanarchive:v1.0
   command: >
     -api
     -cassandra 127.0.0.1
-    -clustername streamingchan
-    -etcd http://$${stack_name}_etcd_1:2379,http://$${stack_name}_etcd_2:2379,http://$${stack_name}_etcd_3:2379
+    -clustername chanarchive
+    -etcd http://chanarchive_etcd_1:2379,http://chanarchive_etcd_2:2379,http://chanarchive_etcd_3:2379
     -httpport 4000
     -keyspace chan
   labels:

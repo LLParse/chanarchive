@@ -4,10 +4,10 @@ import (
 	"bytes"
 	"fmt"
   etcd "github.com/coreos/etcd/client"
-	"github.com/llparse/streamingchan/asset"
-	"github.com/llparse/streamingchan/fourchan"
-	"github.com/llparse/streamingchan/node"
-	"github.com/llparse/streamingchan/version"
+	"github.com/llparse/chanarchive/asset"
+	"github.com/llparse/chanarchive/fourchan"
+	"github.com/llparse/chanarchive/node"
+	"github.com/llparse/chanarchive/version"
 	"log"
 	"net/http"
 	"encoding/json"
@@ -57,7 +57,7 @@ func parseFlags() *ApiConfig {
 	var cassEndpoints = flag.String(   "cassandra",   "127.0.0.1",             "API : Cassandra addresses (comma-delimited)")
 	flag.StringVar(&(c.BindIp),        "bindip",      "127.0.0.1",             "API : Address to bind to.")
 	flag.StringVar(&(c.CassKeyspace),  "keyspace",    "chan",                  "API : Cassandra keyspace")
-	flag.StringVar(&(c.ClusterName),   "clustername", "streamingchan",         "API : Cluster name")
+	flag.StringVar(&(c.ClusterName),   "clustername", "chanarchive",           "API : Cluster name")
 	flag.IntVar(   &(c.HttpPort),      "httpport",    4000,                    "API : Host for HTTP Server for serving stats. 0 for disabled.")
 	flag.Parse()
 

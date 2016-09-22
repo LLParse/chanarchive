@@ -8,7 +8,7 @@ import (
   "sync"
   "time"
   etcd "github.com/coreos/etcd/client"
-  "github.com/llparse/streamingchan/fourchan"
+  "github.com/llparse/chanarchive/fourchan"
   "golang.org/x/net/context"
 )
 
